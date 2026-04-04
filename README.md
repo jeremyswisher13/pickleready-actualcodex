@@ -34,12 +34,12 @@ cd functions && npm install
 
 ```bash
 cp .env.example .env.local
-cp functions/.env.example functions/.env.local
+cp functions/.env.example functions/.env
 ```
 
 3. Fill in the Firebase web config in `.env.local`.
 
-4. Fill in the server-only credentials in `functions/.env.local`:
+4. Fill in the server-only credentials in `functions/.env`:
 
 - `WHOOP_CLIENT_ID`
 - `WHOOP_CLIENT_SECRET`
@@ -77,6 +77,8 @@ Functions:
 ```bash
 firebase deploy --only functions --project swisher-pickleready-codex
 ```
+
+Full production launch steps live in [LAUNCH_CHECKLIST.md](./LAUNCH_CHECKLIST.md).
 
 ## Production notes
 
