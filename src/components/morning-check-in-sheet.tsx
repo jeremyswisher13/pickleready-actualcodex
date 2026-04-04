@@ -66,6 +66,7 @@ export const MorningCheckInSheet = ({
   onSave: (checkIn: DailyCheckIn) => void;
 }) => {
   const [sleepHours, setSleepHours] = useState("7.5");
+  const [formError, setFormError] = useState<string | null>(null);
   const [sleepQuality, setSleepQuality] = useState(3);
   const [energy, setEnergy] = useState(3);
   const [soreness, setSoreness] = useState(3);
@@ -93,6 +94,7 @@ export const MorningCheckInSheet = ({
     setTravel(initialCheckIn?.travel ?? false);
     setPainAreas(initialCheckIn?.painAreas ?? []);
     setNote(initialCheckIn?.note ?? "");
+    setFormError(null);
   }, [initialCheckIn, open]);
 
   if (!open) {
@@ -118,11 +120,39 @@ export const MorningCheckInSheet = ({
     physicalEstimate: 65,
     confidence: "medium"
   });
+  const handleSave = () => {
+    const parsedSleepHours = Number(sleepHours);
+
+    if (!Number.isFinite(parsedSleepHours) || parsedSleepHours <= 0 || parsedSleepHours > 16) {
+      setFormError("Enter a realistic sleep total between 0.5 and 16 hours.");
+      return;
+    }
+
+    setFormError(null);
+    onSave({
+      dateString: todayKey,
+      submittedAt: new Date().toISOString(),
+      source: "manual",
+      sleepHours: parsedSleepHours,
+      sleepQuality,
+      energy,
+      soreness,
+      stress,
+      mentalSharpness,
+      illness,
+      alcohol,
+      travel,
+      painAreas,
+      note: note.trim(),
+      physicalEstimate: preview,
+      confidence: "medium"
+    });
+  };
 
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-slate-950/40 p-3 backdrop-blur-sm">
-      <Card className="max-h-[94vh] w-full max-w-[390px] overflow-hidden rounded-[32px]">
-        <div className="flex items-center justify-between border-b border-blue-50 px-5 py-4">
+      <Card className="flex max-h-[94vh] w-full max-w-[390px] flex-col overflow-hidden rounded-[32px]">
+        <div className="flex shrink-0 items-center justify-between border-b border-blue-50 px-5 py-4">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-500">Morning Check-In</p>
             <h3 className="text-lg font-semibold text-ink">Manual readiness for device-free players</h3>
@@ -132,7 +162,7 @@ export const MorningCheckInSheet = ({
           </button>
         </div>
 
-        <div className="space-y-5 overflow-y-auto px-5 pb-6 pt-5">
+        <div className="min-h-0 space-y-5 overflow-y-auto px-5 pb-6 pt-5">
           <div className="rounded-[24px] bg-gradient-to-r from-cyan-50 via-blue-50 to-violet-50 p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -235,30 +265,12 @@ export const MorningCheckInSheet = ({
 
           <button
             className="w-full rounded-[22px] bg-cta px-4 py-4 text-sm font-semibold text-white shadow-glow"
-            onClick={() =>
-              onSave({
-                dateString: todayKey,
-                submittedAt: new Date().toISOString(),
-                source: "manual",
-                sleepHours: Number(sleepHours) || 0,
-                sleepQuality,
-                energy,
-                soreness,
-                stress,
-                mentalSharpness,
-                illness,
-                alcohol,
-                travel,
-                painAreas,
-                note: note.trim(),
-                physicalEstimate: preview,
-                confidence: "medium"
-              })
-            }
+            onClick={handleSave}
             type="button"
           >
             Save Morning Check-In
           </button>
+          {formError ? <p className="text-sm leading-6 text-rose-600">{formError}</p> : null}
         </div>
       </Card>
     </div>

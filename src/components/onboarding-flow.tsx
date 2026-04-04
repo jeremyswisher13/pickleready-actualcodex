@@ -49,11 +49,12 @@ export const OnboardingFlow = ({
   }) => void;
 }) => {
   const [step, setStep] = useState(0);
+  const [formError, setFormError] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState(initialName);
   const [email, setEmail] = useState(initialEmail);
   const [duprId, setDuprId] = useState(initialDuprId);
   const [manualDuprRating, setManualDuprRating] = useState(initialDuprRating?.toString() ?? "");
-  const [whoopConnected, setWhoopConnected] = useState(true);
+  const [whoopConnected, setWhoopConnected] = useState(whoopConnectionAvailable);
 
   useEffect(() => {
     if (!open) {
@@ -65,14 +66,54 @@ export const OnboardingFlow = ({
     setEmail(initialEmail);
     setDuprId(initialDuprId);
     setManualDuprRating(initialDuprRating?.toString() ?? "");
-    setWhoopConnected(true);
-  }, [initialDuprId, initialDuprRating, initialEmail, initialName, open]);
+    setWhoopConnected(whoopConnectionAvailable);
+    setFormError(null);
+  }, [initialDuprId, initialDuprRating, initialEmail, initialName, open, whoopConnectionAvailable]);
 
   if (!open) {
     return null;
   }
 
   const isLastStep = step === 3;
+  const emailLooksValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+
+  const goNext = () => {
+    if (step === 0) {
+      if (displayName.trim().length < 2) {
+        setFormError("Add the name you want to use in the app.");
+        return;
+      }
+
+      if (!emailLooksValid) {
+        setFormError("Enter a valid email address for your account.");
+        return;
+      }
+    }
+
+    if (step === 1 && manualDuprRating.trim().length > 0) {
+      const parsedRating = Number(manualDuprRating);
+
+      if (!Number.isFinite(parsedRating) || parsedRating < 2 || parsedRating > 8) {
+        setFormError("Use a DUPR-style rating between 2.00 and 8.00, or leave it blank.");
+        return;
+      }
+    }
+
+    if (isLastStep) {
+      onComplete({
+        displayName: displayName.trim(),
+        email: email.trim(),
+        duprId: duprId.trim(),
+        whoopConnected,
+        manualDuprRating: manualDuprRating.trim() ? Number(manualDuprRating) : null
+      });
+      onClose();
+      return;
+    }
+
+    setFormError(null);
+    setStep((current) => current + 1);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
@@ -104,13 +145,19 @@ export const OnboardingFlow = ({
               </div>
               <input
                 className="w-full rounded-2xl border border-blue-100 bg-blue-50/40 px-4 py-3 text-sm text-ink outline-none ring-blue-300 transition focus:ring-2"
-                onChange={(event) => setDisplayName(event.target.value)}
+                onChange={(event) => {
+                  setDisplayName(event.target.value);
+                  setFormError(null);
+                }}
                 placeholder="Display name"
                 value={displayName}
               />
               <input
                 className="w-full rounded-2xl border border-blue-100 bg-blue-50/40 px-4 py-3 text-sm text-ink outline-none ring-blue-300 transition focus:ring-2"
-                onChange={(event) => setEmail(event.target.value)}
+                onChange={(event) => {
+                  setEmail(event.target.value);
+                  setFormError(null);
+                }}
                 placeholder="Email"
                 type="email"
                 value={email}
@@ -132,14 +179,20 @@ export const OnboardingFlow = ({
               </div>
               <input
                 className="w-full rounded-2xl border border-blue-100 bg-blue-50/40 px-4 py-3 text-sm text-ink outline-none ring-blue-300 transition focus:ring-2"
-                onChange={(event) => setDuprId(event.target.value)}
+                onChange={(event) => {
+                  setDuprId(event.target.value);
+                  setFormError(null);
+                }}
                 placeholder="DUPR ID"
                 value={duprId}
               />
               <input
                 className="w-full rounded-2xl border border-blue-100 bg-blue-50/40 px-4 py-3 text-sm text-ink outline-none ring-blue-300 transition focus:ring-2"
                 inputMode="decimal"
-                onChange={(event) => setManualDuprRating(event.target.value)}
+                onChange={(event) => {
+                  setManualDuprRating(event.target.value);
+                  setFormError(null);
+                }}
                 placeholder="Optional current DUPR rating"
                 value={manualDuprRating}
               />
@@ -204,31 +257,26 @@ export const OnboardingFlow = ({
             </div>
           ) : null}
 
+          {formError ? <p className="text-sm leading-6 text-rose-600">{formError}</p> : null}
+
           <div className="grid grid-cols-2 gap-3">
             <button
               className="rounded-[20px] border border-blue-100 bg-white px-4 py-3 text-sm font-semibold text-ink"
-              onClick={step === 0 ? onClose : () => setStep((current) => Math.max(0, current - 1))}
+              onClick={
+                step === 0
+                  ? onClose
+                  : () => {
+                      setFormError(null);
+                      setStep((current) => Math.max(0, current - 1));
+                    }
+              }
               type="button"
             >
               {step === 0 ? "Close" : "Back"}
             </button>
             <button
               className="inline-flex items-center justify-center gap-2 rounded-[20px] bg-cta px-4 py-3 text-sm font-semibold text-white shadow-glow"
-              onClick={() => {
-                if (isLastStep) {
-                  onComplete({
-                    displayName,
-                    email,
-                    duprId,
-                    whoopConnected,
-                    manualDuprRating: manualDuprRating ? Number(manualDuprRating) : null
-                  });
-                  onClose();
-                  return;
-                }
-
-                setStep((current) => current + 1);
-              }}
+              onClick={goNext}
               type="button"
             >
               {isLastStep ? "Enter dashboard" : "Next"}

@@ -217,6 +217,14 @@ export const MatchLogSheet = ({
       return;
     }
 
+    const wins = preparedGames.filter((game) => game.myScore > game.opponentScore).length;
+    const losses = preparedGames.filter((game) => game.myScore < game.opponentScore).length;
+
+    if (wins === losses) {
+      setFormError("This scoreline is still tied. Add the deciding game before saving the match.");
+      return;
+    }
+
     const opponentRatings = validOpponents
       .map((opponent) => opponent.rating)
       .filter((rating): rating is number => typeof rating === "number");
@@ -243,7 +251,7 @@ export const MatchLogSheet = ({
       notes: draft.notes.trim(),
       verified: draft.verified,
       verifiedBy: initialMatch?.verifiedBy ?? [],
-      readinessAtTime: currentReadiness?.overall ?? 65,
+      readinessAtTime: initialMatch?.readinessAtTime ?? currentReadiness?.overall ?? 65,
       postMatchInsight: initialMatch?.postMatchInsight ?? "",
       opponentAverageRating: opponentRatings.length > 0 ? average(opponentRatings) : undefined
     };
