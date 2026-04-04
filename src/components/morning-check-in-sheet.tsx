@@ -63,10 +63,11 @@ export const MorningCheckInSheet = ({
   open: boolean;
   initialCheckIn: DailyCheckIn | null;
   onClose: () => void;
-  onSave: (checkIn: DailyCheckIn) => void;
+  onSave: (checkIn: DailyCheckIn) => Promise<boolean | void> | boolean | void;
 }) => {
   const [sleepHours, setSleepHours] = useState("7.5");
   const [formError, setFormError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [sleepQuality, setSleepQuality] = useState(3);
   const [energy, setEnergy] = useState(3);
   const [soreness, setSoreness] = useState(3);
@@ -95,6 +96,7 @@ export const MorningCheckInSheet = ({
     setPainAreas(initialCheckIn?.painAreas ?? []);
     setNote(initialCheckIn?.note ?? "");
     setFormError(null);
+    setSaving(false);
   }, [initialCheckIn, open]);
 
   if (!open) {
@@ -120,7 +122,7 @@ export const MorningCheckInSheet = ({
     physicalEstimate: 65,
     confidence: "medium"
   });
-  const handleSave = () => {
+  const handleSave = async () => {
     const parsedSleepHours = Number(sleepHours);
 
     if (!Number.isFinite(parsedSleepHours) || parsedSleepHours <= 0 || parsedSleepHours > 16) {
@@ -129,7 +131,8 @@ export const MorningCheckInSheet = ({
     }
 
     setFormError(null);
-    onSave({
+    setSaving(true);
+    const saved = await onSave({
       dateString: todayKey,
       submittedAt: new Date().toISOString(),
       source: "manual",
@@ -147,6 +150,12 @@ export const MorningCheckInSheet = ({
       physicalEstimate: preview,
       confidence: "medium"
     });
+
+    setSaving(false);
+
+    if (saved !== false) {
+      onClose();
+    }
   };
 
   return (
@@ -264,11 +273,15 @@ export const MorningCheckInSheet = ({
           </div>
 
           <button
-            className="w-full rounded-[22px] bg-cta px-4 py-4 text-sm font-semibold text-white shadow-glow"
-            onClick={handleSave}
+            className={cn(
+              "w-full rounded-[22px] bg-cta px-4 py-4 text-sm font-semibold text-white shadow-glow",
+              saving && "opacity-70"
+            )}
+            disabled={saving}
+            onClick={() => void handleSave()}
             type="button"
           >
-            Save Morning Check-In
+            {saving ? "Saving..." : "Save Morning Check-In"}
           </button>
           {formError ? <p className="text-sm leading-6 text-rose-600">{formError}</p> : null}
         </div>

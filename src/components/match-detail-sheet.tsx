@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { ArrowRight, Pencil, Trash2, X } from "lucide-react";
 
 import type { MatchRecord } from "@shared/domain/types";
@@ -23,8 +24,16 @@ export const MatchDetailSheet = ({
   match: MatchRecord | null;
   onClose: () => void;
   onEdit: (match: MatchRecord) => void;
-  onDelete: (matchId: string) => void;
+  onDelete: (matchId: string) => Promise<boolean | void> | boolean | void;
 }) => {
+  const [deleting, setDeleting] = useState(false);
+
+  useEffect(() => {
+    if (!match) {
+      setDeleting(false);
+    }
+  }, [match]);
+
   if (!match) {
     return null;
   }
@@ -122,15 +131,21 @@ export const MatchDetailSheet = ({
               Edit
             </button>
             <button
-              className="inline-flex items-center justify-center gap-2 rounded-[20px] bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-600"
-              onClick={() => {
-                onDelete(match.id);
-                onClose();
+              className={`inline-flex items-center justify-center gap-2 rounded-[20px] bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-600 ${deleting ? "opacity-70" : ""}`}
+              disabled={deleting}
+              onClick={async () => {
+                setDeleting(true);
+                const deleted = await onDelete(match.id);
+                setDeleting(false);
+
+                if (deleted !== false) {
+                  onClose();
+                }
               }}
               type="button"
             >
               <Trash2 className="h-4 w-4" />
-              Delete
+              {deleting ? "Deleting..." : "Delete"}
             </button>
           </div>
         </div>

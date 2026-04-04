@@ -749,7 +749,7 @@ export const usePickleReadyState = () => {
 
   const syncLiveState = async (nextState: DemoState) => {
     if (!firebaseUser || !db) {
-      return;
+      return false;
     }
 
     setSyncing(true);
@@ -757,8 +757,11 @@ export const usePickleReadyState = () => {
 
     try {
       await syncDerivedDocuments(firebaseUser.uid, nextState);
+      startTransition(() => setLiveRoot(serializeRootDocument(nextState)));
+      return true;
     } catch (nextError) {
       setError(friendlyError(nextError));
+      return false;
     } finally {
       setSyncing(false);
     }
@@ -767,7 +770,7 @@ export const usePickleReadyState = () => {
   const startWhoopConnectionFlow = async () => {
     if (!firebaseUser || !firebaseFunctions) {
       setError("Whoop connection is not configured for this environment yet.");
-      return;
+      return false;
     }
 
     setSyncing(true);
@@ -787,16 +790,18 @@ export const usePickleReadyState = () => {
       }
 
       window.location.assign(result.data.url);
+      return true;
     } catch (nextError) {
       setError(friendlyError(nextError));
       setSyncing(false);
+      return false;
     }
   };
 
   const disconnectWhoopAccount = async () => {
     if (!firebaseFunctions) {
       setError("Whoop connection is not configured for this environment yet.");
-      return;
+      return false;
     }
 
     setSyncing(true);
@@ -805,8 +810,10 @@ export const usePickleReadyState = () => {
     try {
       const disconnectWhoop = httpsCallable(firebaseFunctions, "disconnectWhoop");
       await disconnectWhoop();
+      return true;
     } catch (nextError) {
       setError(friendlyError(nextError));
+      return false;
     } finally {
       setSyncing(false);
     }
@@ -826,11 +833,11 @@ export const usePickleReadyState = () => {
           matches
         };
       });
-      return;
+      return true;
     }
 
     if (!firebaseUser || !db || !state) {
-      return;
+      return false;
     }
 
     const existingIndex = state.matches.findIndex((candidate) => candidate.id === match.id);
@@ -839,11 +846,6 @@ export const usePickleReadyState = () => {
         ? state.matches.map((candidate) => (candidate.id === match.id ? match : candidate))
         : [match, ...state.matches];
     const nextState = normalizeState({ ...state, matches: nextMatches });
-
-    startTransition(() => {
-      setLiveMatches(sortMatchesDesc(nextMatches));
-      setLiveRoot(serializeRootDocument(nextState));
-    });
 
     const mutationAt = Date.now();
     setPendingRatingSyncAt(mutationAt);
@@ -854,8 +856,16 @@ export const usePickleReadyState = () => {
     try {
       await setDoc(doc(db, `users/${firebaseUser.uid}/matches/${match.id}`), match, { merge: true });
       await syncDerivedDocuments(firebaseUser.uid, nextState);
+      startTransition(() => {
+        setLiveMatches(sortMatchesDesc(nextMatches));
+        setLiveRoot(serializeRootDocument(nextState));
+      });
+      return true;
     } catch (nextError) {
       setError(friendlyError(nextError));
+      setPendingRatingSyncAt(null);
+      setPendingReadinessSyncAt(null);
+      return false;
     } finally {
       setSyncing(false);
     }
@@ -867,20 +877,15 @@ export const usePickleReadyState = () => {
         ...current,
         matches: current.matches.filter((match) => match.id !== matchId)
       }));
-      return;
+      return true;
     }
 
     if (!firebaseUser || !db || !state) {
-      return;
+      return false;
     }
 
     const nextMatches = state.matches.filter((match) => match.id !== matchId);
     const nextState = normalizeState({ ...state, matches: nextMatches });
-
-    startTransition(() => {
-      setLiveMatches(sortMatchesDesc(nextMatches));
-      setLiveRoot(serializeRootDocument(nextState));
-    });
 
     const mutationAt = Date.now();
     setPendingRatingSyncAt(mutationAt);
@@ -891,8 +896,16 @@ export const usePickleReadyState = () => {
     try {
       await deleteDoc(doc(db, `users/${firebaseUser.uid}/matches/${matchId}`));
       await syncDerivedDocuments(firebaseUser.uid, nextState);
+      startTransition(() => {
+        setLiveMatches(sortMatchesDesc(nextMatches));
+        setLiveRoot(serializeRootDocument(nextState));
+      });
+      return true;
     } catch (nextError) {
       setError(friendlyError(nextError));
+      setPendingRatingSyncAt(null);
+      setPendingReadinessSyncAt(null);
+      return false;
     } finally {
       setSyncing(false);
     }
@@ -907,11 +920,11 @@ export const usePickleReadyState = () => {
           ...current.dailyCheckins.filter((existing) => existing.dateString !== checkIn.dateString)
         ]
       }));
-      return;
+      return true;
     }
 
     if (!firebaseUser || !db || !state) {
-      return;
+      return false;
     }
 
     const nextCheckIns = [
@@ -923,11 +936,6 @@ export const usePickleReadyState = () => {
       dailyCheckins: nextCheckIns
     });
 
-    startTransition(() => {
-      setLiveCheckIns(sortCheckInsDesc(nextCheckIns));
-      setLiveRoot(serializeRootDocument(nextState));
-    });
-
     setPendingReadinessSyncAt(Date.now());
     setSyncing(true);
     setError(null);
@@ -935,8 +943,15 @@ export const usePickleReadyState = () => {
     try {
       await setDoc(doc(db, `users/${firebaseUser.uid}/dailyCheckins/${checkIn.dateString}`), checkIn, { merge: true });
       await syncDerivedDocuments(firebaseUser.uid, nextState);
+      startTransition(() => {
+        setLiveCheckIns(sortCheckInsDesc(nextCheckIns));
+        setLiveRoot(serializeRootDocument(nextState));
+      });
+      return true;
     } catch (nextError) {
       setError(friendlyError(nextError));
+      setPendingReadinessSyncAt(null);
+      return false;
     } finally {
       setSyncing(false);
     }
@@ -971,11 +986,11 @@ export const usePickleReadyState = () => {
         whoopToday: payload.whoopConnected ? current.whoopToday : null,
         whoopBaseline: payload.whoopConnected ? current.whoopBaseline : null
       }));
-      return;
+      return true;
     }
 
     if (!firebaseUser || !state) {
-      return;
+      return false;
     }
 
     const nextState = normalizeState({
@@ -998,12 +1013,16 @@ export const usePickleReadyState = () => {
         : state.dupr
     });
 
-    startTransition(() => setLiveRoot(serializeRootDocument(nextState)));
-    await syncLiveState(nextState);
+    const synced = await syncLiveState(nextState);
+    if (!synced) {
+      return false;
+    }
 
     if (payload.whoopConnected && !state.profile.whoopConnected && liveWhoopConnectionAvailable) {
-      await startWhoopConnectionFlow();
+      return await startWhoopConnectionFlow();
     }
+
+    return true;
   };
 
   const reopenOnboarding = async () => {
@@ -1012,19 +1031,18 @@ export const usePickleReadyState = () => {
         ...current,
         onboardingComplete: false
       }));
-      return;
+      return true;
     }
 
     if (!state) {
-      return;
+      return false;
     }
 
     const nextState = {
       ...state,
       onboardingComplete: false
     };
-    startTransition(() => setLiveRoot(serializeRootDocument(nextState)));
-    await syncLiveState(nextState);
+    return await syncLiveState(nextState);
   };
 
   const toggleWhoopConnection = async () => {
@@ -1061,7 +1079,7 @@ export const usePickleReadyState = () => {
 
   const toggleNotifications = async () => {
     if (!state) {
-      return;
+      return false;
     }
 
     if (mode === "demo") {
@@ -1069,15 +1087,14 @@ export const usePickleReadyState = () => {
         ...current,
         notificationsEnabled: !current.notificationsEnabled
       }));
-      return;
+      return true;
     }
 
     const nextState = {
       ...state,
       notificationsEnabled: !state.notificationsEnabled
     };
-    startTransition(() => setLiveRoot(serializeRootDocument(nextState)));
-    await syncLiveState(nextState);
+    return await syncLiveState(nextState);
   };
 
   const resetDemoData = () => {

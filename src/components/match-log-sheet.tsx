@@ -26,7 +26,7 @@ interface MatchLogSheetProps {
   opponents: OpponentProfile[];
   currentReadiness: ReadinessScore | null;
   onClose: () => void;
-  onSave: (match: MatchRecord) => void;
+  onSave: (match: MatchRecord) => Promise<boolean | void> | boolean | void;
 }
 
 interface OpponentDraft {
@@ -92,11 +92,13 @@ export const MatchLogSheet = ({
 }: MatchLogSheetProps) => {
   const [draft, setDraft] = useState<MatchDraft>(createDraft(initialMatch, prefilledOpponentName));
   const [formError, setFormError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (open) {
       setDraft(createDraft(initialMatch, prefilledOpponentName));
       setFormError(null);
+      setSaving(false);
     }
   }, [initialMatch, open, prefilledOpponentName]);
 
@@ -128,7 +130,7 @@ export const MatchLogSheet = ({
     }));
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     const parsedDate = new Date(draft.date);
     if (Number.isNaN(parsedDate.getTime())) {
       setFormError("Add a valid match date and time.");
@@ -257,8 +259,13 @@ export const MatchLogSheet = ({
     };
 
     setFormError(null);
-    onSave(match);
-    onClose();
+    setSaving(true);
+    const saved = await onSave(match);
+    setSaving(false);
+
+    if (saved !== false) {
+      onClose();
+    }
   };
 
   return (
@@ -483,11 +490,15 @@ export const MatchLogSheet = ({
           </div>
 
           <button
-            className="w-full rounded-[22px] bg-cta px-4 py-4 text-sm font-semibold text-white shadow-glow"
-            onClick={handleSubmit}
+            className={cn(
+              "w-full rounded-[22px] bg-cta px-4 py-4 text-sm font-semibold text-white shadow-glow",
+              saving && "opacity-70"
+            )}
+            disabled={saving}
+            onClick={() => void handleSubmit()}
             type="button"
           >
-            {initialMatch ? "Save match changes" : "Log match and update scores"}
+            {saving ? "Saving..." : initialMatch ? "Save match changes" : "Log match and update scores"}
           </button>
           {formError ? <p className="text-sm leading-6 text-rose-600">{formError}</p> : null}
         </div>

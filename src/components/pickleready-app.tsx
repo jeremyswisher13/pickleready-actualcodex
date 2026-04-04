@@ -255,9 +255,12 @@ export const PickleReadyApp = () => {
               mode={mode}
               notificationsEnabled={state.notificationsEnabled}
               onExitDemo={exitDemoMode}
-              onReopenOnboarding={() => {
-                reopenOnboarding();
-                setOnboardingVisible(true);
+              onReopenOnboarding={async () => {
+                const reopened = await reopenOnboarding();
+
+                if (reopened !== false) {
+                  setOnboardingVisible(true);
+                }
               }}
               onResetDemoData={resetDemoData}
               onSignOut={() => void signOutFromApp()}
@@ -282,7 +285,17 @@ export const PickleReadyApp = () => {
           setEditingMatch(null);
           setPrefilledOpponentName(null);
         }}
-        onSave={saveMatch}
+        onSave={async (match) => {
+          const saved = await saveMatch(match);
+
+          if (saved !== false) {
+            setComposerOpen(false);
+            setEditingMatch(null);
+            setPrefilledOpponentName(null);
+          }
+
+          return saved;
+        }}
         open={composerOpen}
         opponents={opponents}
         prefilledOpponentName={prefilledOpponentName}
@@ -301,10 +314,7 @@ export const PickleReadyApp = () => {
         initialEmail={state.profile.email}
         initialName={state.profile.displayName}
         onClose={() => setOnboardingVisible(false)}
-        onComplete={(payload) => {
-          void completeOnboarding(payload);
-          setOnboardingVisible(false);
-        }}
+        onComplete={completeOnboarding}
         open={onboardingVisible}
         whoopConnectionAvailable={whoopConnectionAvailable}
       />
@@ -312,9 +322,14 @@ export const PickleReadyApp = () => {
       <MorningCheckInSheet
         initialCheckIn={currentCheckIn}
         onClose={() => setCheckInOpen(false)}
-        onSave={(checkIn) => {
-          void saveMorningCheckIn(checkIn);
-          setCheckInOpen(false);
+        onSave={async (checkIn) => {
+          const saved = await saveMorningCheckIn(checkIn);
+
+          if (saved !== false) {
+            setCheckInOpen(false);
+          }
+
+          return saved;
         }}
         open={checkInOpen}
       />

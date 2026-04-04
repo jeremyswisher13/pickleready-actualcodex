@@ -46,10 +46,11 @@ export const OnboardingFlow = ({
     duprId: string;
     whoopConnected: boolean;
     manualDuprRating?: number | null;
-  }) => void;
+  }) => Promise<boolean | void> | boolean | void;
 }) => {
   const [step, setStep] = useState(0);
   const [formError, setFormError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [displayName, setDisplayName] = useState(initialName);
   const [email, setEmail] = useState(initialEmail);
   const [duprId, setDuprId] = useState(initialDuprId);
@@ -68,6 +69,7 @@ export const OnboardingFlow = ({
     setManualDuprRating(initialDuprRating?.toString() ?? "");
     setWhoopConnected(whoopConnectionAvailable);
     setFormError(null);
+    setSaving(false);
   }, [initialDuprId, initialDuprRating, initialEmail, initialName, open, whoopConnectionAvailable]);
 
   if (!open) {
@@ -77,7 +79,7 @@ export const OnboardingFlow = ({
   const isLastStep = step === 3;
   const emailLooksValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 
-  const goNext = () => {
+  const goNext = async () => {
     if (step === 0) {
       if (displayName.trim().length < 2) {
         setFormError("Add the name you want to use in the app.");
@@ -100,14 +102,19 @@ export const OnboardingFlow = ({
     }
 
     if (isLastStep) {
-      onComplete({
+      setSaving(true);
+      const completed = await onComplete({
         displayName: displayName.trim(),
         email: email.trim(),
         duprId: duprId.trim(),
         whoopConnected,
         manualDuprRating: manualDuprRating.trim() ? Number(manualDuprRating) : null
       });
-      onClose();
+      setSaving(false);
+
+      if (completed !== false) {
+        onClose();
+      }
       return;
     }
 
@@ -262,6 +269,7 @@ export const OnboardingFlow = ({
           <div className="grid grid-cols-2 gap-3">
             <button
               className="rounded-[20px] border border-blue-100 bg-white px-4 py-3 text-sm font-semibold text-ink"
+              disabled={saving}
               onClick={
                 step === 0
                   ? onClose
@@ -275,11 +283,12 @@ export const OnboardingFlow = ({
               {step === 0 ? "Close" : "Back"}
             </button>
             <button
-              className="inline-flex items-center justify-center gap-2 rounded-[20px] bg-cta px-4 py-3 text-sm font-semibold text-white shadow-glow"
-              onClick={goNext}
+              className={`inline-flex items-center justify-center gap-2 rounded-[20px] bg-cta px-4 py-3 text-sm font-semibold text-white shadow-glow ${saving ? "opacity-70" : ""}`}
+              disabled={saving}
+              onClick={() => void goNext()}
               type="button"
             >
-              {isLastStep ? "Enter dashboard" : "Next"}
+              {saving ? "Saving..." : isLastStep ? "Enter dashboard" : "Next"}
               <ArrowRight className="h-4 w-4" />
             </button>
           </div>
