@@ -3,9 +3,11 @@
 import { startTransition, useEffect, useMemo, useState } from "react";
 import {
   createUserWithEmailAndPassword,
+  getRedirectResult,
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
   updateProfile,
   type User
@@ -618,6 +620,18 @@ const friendlyError = (error: unknown) => {
   return "Something went wrong. Please try again.";
 };
 
+const shouldUseRedirectForGoogle = () => {
+  if (typeof window === "undefined" || typeof navigator === "undefined") {
+    return false;
+  }
+
+  const coarsePointer = window.matchMedia?.("(pointer: coarse)").matches ?? false;
+  const mobileViewport = window.matchMedia?.("(max-width: 820px)").matches ?? false;
+  const mobileUserAgent = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+
+  return coarsePointer || mobileViewport || mobileUserAgent;
+};
+
 export const usePickleReadyState = () => {
   const [guestMode, setGuestMode] = useState<AppMode>("guest");
   const [demoState, setDemoState] = useState<DemoState | null>(null);
@@ -691,6 +705,24 @@ export const usePickleReadyState = () => {
     });
 
     return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    if (!auth) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void getRedirectResult(auth).catch((nextError) => {
+      if (!cancelled) {
+        setError(friendlyError(nextError));
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -1161,6 +1193,11 @@ export const usePickleReadyState = () => {
     setError(null);
 
     try {
+      if (shouldUseRedirectForGoogle()) {
+        await signInWithRedirect(auth, googleProvider);
+        return;
+      }
+
       await signInWithPopup(auth, googleProvider);
     } catch (nextError) {
       setError(friendlyError(nextError));
