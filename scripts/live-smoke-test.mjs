@@ -243,6 +243,19 @@ const patchDocument = async (path, data, idToken) =>
     }
   });
 
+const createDocument = async (collectionPath, documentId, data, idToken) =>
+  requestJson(`${FIRESTORE_BASE(projectId)}/${collectionPath}?documentId=${encodeURIComponent(documentId)}`, {
+    method: "POST",
+    headers: firestoreHeaders(idToken),
+    body: {
+      fields: Object.fromEntries(
+        Object.entries(data)
+          .filter(([, value]) => value !== undefined)
+          .map(([key, value]) => [key, toFirestoreValue(value)])
+      )
+    }
+  });
+
 const getDocument = async (path, idToken) => {
   const { response, json } = await requestJson(firestoreDocUrl(path), {
     headers: {
@@ -482,13 +495,15 @@ try {
   if (whoopClientId) {
     logStep("Creating a temporary Whoop OAuth state");
     const oauthState = createWhoopOAuthState();
+    const whoopStateCreatedAt = new Date();
 
-    await patchDocument(
-      `oauthStates/${oauthState}`,
+    await createDocument(
+      "oauthStates",
+      oauthState,
       {
         continueUrl: appUrl,
-        createdAt: now,
-        expiresAt: new Date(now.getTime() + 15 * 60 * 1000),
+        createdAt: whoopStateCreatedAt,
+        expiresAt: new Date(whoopStateCreatedAt.getTime() + 15 * 60 * 1000),
         provider: "whoop",
         userId: uid
       },
