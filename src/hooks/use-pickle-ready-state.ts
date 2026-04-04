@@ -61,6 +61,41 @@ const MODE_STORAGE_KEY = "pickleready-app-mode";
 const DEFAULT_PHOTO_URL =
   "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=400&q=80";
 const WHOOP_OAUTH_ENABLED = process.env.NEXT_PUBLIC_WHOOP_OAUTH_ENABLED === "true";
+const WHOOP_CLIENT_ID = process.env.NEXT_PUBLIC_WHOOP_CLIENT_ID ?? "";
+const WHOOP_REDIRECT_URI = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
+  ? `https://us-central1-${process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID}.cloudfunctions.net/whoopOAuthCallback`
+  : "";
+const WHOOP_OAUTH_SCOPES = [
+  "offline",
+  "read:recovery",
+  "read:cycles",
+  "read:sleep",
+  "read:workout",
+  "read:profile",
+  "read:body_measurement"
+] as const;
+const WHOOP_STATE_CHARSET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+
+const createWhoopOAuthState = () => {
+  const bytes =
+    typeof window !== "undefined" && window.crypto?.getRandomValues
+      ? window.crypto.getRandomValues(new Uint8Array(8))
+      : Uint8Array.from({ length: 8 }, () => Math.floor(Math.random() * 256));
+
+  return Array.from(bytes, (value) => WHOOP_STATE_CHARSET[value % WHOOP_STATE_CHARSET.length]).join("");
+};
+
+const buildWhoopAuthorizationUrl = (state: string) => {
+  const params = new URLSearchParams({
+    client_id: WHOOP_CLIENT_ID,
+    redirect_uri: WHOOP_REDIRECT_URI,
+    response_type: "code",
+    scope: WHOOP_OAUTH_SCOPES.join(" "),
+    state
+  });
+
+  return `https://api.prod.whoop.com/oauth/oauth2/auth?${params.toString()}`;
+};
 
 const createInitialState = (): DemoState => {
   const seed = createSeedData();
@@ -598,7 +633,8 @@ export const usePickleReadyState = () => {
   const [error, setError] = useState<string | null>(null);
   const [pendingReadinessSyncAt, setPendingReadinessSyncAt] = useState<number | null>(null);
   const [pendingRatingSyncAt, setPendingRatingSyncAt] = useState<number | null>(null);
-  const liveWhoopConnectionAvailable = WHOOP_OAUTH_ENABLED && Boolean(firebaseFunctions);
+  const liveWhoopConnectionAvailable =
+    WHOOP_OAUTH_ENABLED && firebaseConfigured && Boolean(db) && Boolean(WHOOP_CLIENT_ID) && Boolean(WHOOP_REDIRECT_URI);
 
   useEffect(() => {
     const stored = parseStoredState(window.localStorage.getItem(STORAGE_KEY));
@@ -768,7 +804,7 @@ export const usePickleReadyState = () => {
   };
 
   const startWhoopConnectionFlow = async () => {
-    if (!firebaseUser || !firebaseFunctions) {
+    if (!firebaseUser || !db || !liveWhoopConnectionAvailable) {
       setError("Whoop connection is not configured for this environment yet.");
       return false;
     }
@@ -777,19 +813,22 @@ export const usePickleReadyState = () => {
     setError(null);
 
     try {
-      const createConnectUrl = httpsCallable<{ continueUrl: string }, { url: string }>(
-        firebaseFunctions,
-        "createWhoopConnectUrl"
+      const now = Date.now();
+      const state = createWhoopOAuthState();
+
+      await setDoc(
+        doc(db, "oauthStates", state),
+        {
+          continueUrl: window.location.href,
+          createdAt: Timestamp.fromMillis(now),
+          expiresAt: Timestamp.fromMillis(now + 15 * 60 * 1000),
+          provider: "whoop",
+          userId: firebaseUser.uid
+        },
+        { merge: false }
       );
-      const result = await createConnectUrl({
-        continueUrl: window.location.href
-      });
 
-      if (!result.data?.url) {
-        throw new Error("Whoop did not return a connection URL.");
-      }
-
-      window.location.assign(result.data.url);
+      window.location.assign(buildWhoopAuthorizationUrl(state));
       return true;
     } catch (nextError) {
       setError(friendlyError(nextError));

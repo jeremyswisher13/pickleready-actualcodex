@@ -20,6 +20,27 @@ service cloud.firestore {
         && request.resource.data.profile.whoopUserId == resource.data.profile.whoopUserId;
     }
 
+    function isValidWhoopOauthState(stateId) {
+      return stateId.size() == 8
+        && request.resource.data.keys().hasOnly(["continueUrl", "createdAt", "expiresAt", "provider", "userId"])
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.provider == "whoop"
+        && request.resource.data.continueUrl is string
+        && request.resource.data.continueUrl.size() > 0
+        && request.resource.data.continueUrl.size() <= 300
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.data.createdAt >= request.time - duration.value(1, "minutes")
+        && request.resource.data.createdAt <= request.time + duration.value(1, "minutes")
+        && request.resource.data.expiresAt > request.time
+        && request.resource.data.expiresAt <= request.time + duration.value(20, "minutes");
+    }
+
+    match /oauthStates/{stateId} {
+      allow create: if isSignedIn() && isValidWhoopOauthState(stateId);
+      allow read, update, delete: if false;
+    }
+
     match /users/{userId} {
       allow create: if isOwner(userId) && hasClientSafeProfileShape();
       allow read, delete: if isOwner(userId);

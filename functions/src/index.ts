@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 
 import { initializeApp } from "firebase-admin/app";
+import { getAuth as getAdminAuth } from "firebase-admin/auth";
 import { FieldValue, Timestamp, WriteBatch, getFirestore } from "firebase-admin/firestore";
 import { onDocumentCreated, onDocumentWritten } from "firebase-functions/v2/firestore";
 import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
@@ -27,7 +28,9 @@ import {
 
 initializeApp();
 
+const adminAuth = getAdminAuth();
 const db = getFirestore();
+db.settings({ ignoreUndefinedProperties: true });
 const WHOOP_OAUTH_SCOPES = [
   "offline",
   "read:recovery",
@@ -56,6 +59,16 @@ const asString = (value: unknown) => (typeof value === "string" ? value : "");
 
 const createWhoopOAuthState = () =>
   Array.from(randomBytes(8), (value) => WHOOP_STATE_CHARSET[value % WHOOP_STATE_CHARSET.length]).join("");
+
+const getBearerToken = (headerValue: unknown) => {
+  const header = typeof headerValue === "string" ? headerValue : Array.isArray(headerValue) ? headerValue[0] : "";
+
+  if (!header.startsWith("Bearer ")) {
+    return "";
+  }
+
+  return header.slice("Bearer ".length).trim();
+};
 
 const getConfiguredAppUrl = () =>
   process.env.APP_URL ??
@@ -651,6 +664,21 @@ const buildWhoopAuthorizationUrl = (state: string) => {
   return `https://api.prod.whoop.com/oauth/oauth2/auth?${params.toString()}`;
 };
 
+const persistWhoopOAuthState = async (userId: string, continueUrl: string) => {
+  const state = createWhoopOAuthState();
+  const now = Date.now();
+
+  await db.doc(`oauthStates/${state}`).set({
+    continueUrl,
+    createdAt: Timestamp.fromMillis(now),
+    expiresAt: Timestamp.fromMillis(now + 15 * 60 * 1000),
+    provider: "whoop",
+    userId
+  });
+
+  return state;
+};
+
 const refreshReadinessForUser = async (
   userId: string,
   rootData: Record<string, unknown>,
@@ -776,7 +804,7 @@ const ensureWhoopTokenSet = (
   }
 };
 
-export const createWhoopConnectUrl = onCall(async (request) => {
+export const createWhoopConnectUrl = onCall({ invoker: "public" }, async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
@@ -785,23 +813,45 @@ export const createWhoopConnectUrl = onCall(async (request) => {
     (request.data as Record<string, unknown> | null)?.continueUrl,
     request.rawRequest.headers.origin
   );
-  const state = createWhoopOAuthState();
-  const now = Date.now();
-
-  await db.doc(`oauthStates/${state}`).set({
-    continueUrl,
-    createdAt: Timestamp.fromMillis(now),
-    expiresAt: Timestamp.fromMillis(now + 15 * 60 * 1000),
-    provider: "whoop",
-    userId: request.auth.uid
-  });
+  const state = await persistWhoopOAuthState(request.auth.uid, continueUrl);
 
   return {
     url: buildWhoopAuthorizationUrl(state)
   };
 });
 
-export const disconnectWhoop = onCall(async (request) => {
+export const createWhoopConnectSession = onRequest({ cors: true, invoker: "public" }, async (request, response) => {
+  if (request.method !== "POST") {
+    response.status(405).json({ error: "Method not allowed." });
+    return;
+  }
+
+  const idToken = getBearerToken(request.headers.authorization);
+  if (!idToken) {
+    response.status(401).json({ error: "Missing Firebase ID token." });
+    return;
+  }
+
+  let decodedToken;
+
+  try {
+    decodedToken = await adminAuth.verifyIdToken(idToken);
+  } catch {
+    response.status(401).json({ error: "Invalid Firebase ID token." });
+    return;
+  }
+
+  const requestBody =
+    request.body && typeof request.body === "object" ? (request.body as Record<string, unknown>) : {};
+  const continueUrl = resolveContinueUrl(requestBody.continueUrl, request.headers.origin);
+  const state = await persistWhoopOAuthState(decodedToken.uid, continueUrl);
+
+  response.status(200).json({
+    url: buildWhoopAuthorizationUrl(state)
+  });
+});
+
+export const disconnectWhoop = onCall({ invoker: "public" }, async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
@@ -1199,7 +1249,7 @@ export const syncReadinessOnCheckIn = onDocumentWritten("users/{userId}/dailyChe
   });
 });
 
-export const calculateReadinessNow = onCall(async (request) => {
+export const calculateReadinessNow = onCall({ invoker: "public" }, async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
   }
