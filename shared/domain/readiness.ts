@@ -1,5 +1,5 @@
 import type { ChangeExplanation, MatchRecord, ReadinessInput, ReadinessScore, ScoreLabel } from "./types";
-import { average, clamp, daysBetween, interpolateClamped, isoDateKey, round } from "./utils";
+import { average, clamp, dayDifferenceInTimeZone, dateKeyInTimeZone, interpolateClamped, isDateKey, isoDateKey, round } from "./utils";
 import { averageMatchMargin } from "./rec-score";
 
 const DEFAULT_PHYSICAL = 65;
@@ -235,8 +235,11 @@ const buildImpact = (factor: string, score: number, neutral: number, weight: num
   description
 });
 
-const getRecentMatches = (matches: MatchRecord[], dateString: string, windowDays: number) =>
-  matches.filter((match) => daysBetween(dateString, match.date) <= windowDays && daysBetween(dateString, match.date) >= 0);
+const getRecentMatches = (matches: MatchRecord[], dateString: string, windowDays: number, timeZone: string) =>
+  matches.filter((match) => {
+    const gap = dayDifferenceInTimeZone(dateString, match.date, timeZone);
+    return gap <= windowDays && gap >= 0;
+  });
 
 const hasEnoughWhoopHistory = (observedDays: number | undefined) => (observedDays ?? 0) >= 3;
 
@@ -271,15 +274,20 @@ export const estimateManualPhysicalReadiness = (input: NonNullable<ReadinessInpu
 export const calculateReadinessScore = (input: ReadinessInput): ReadinessScore => {
   const cutoffTime = new Date(input.calculatedAt ?? input.dateString).getTime();
   const calculatedAt = input.calculatedAt ?? (input.dateString.includes("T") ? input.dateString : `${isoDateKey(input.dateString)}T12:00:00.000Z`);
+  const userTimeZone = input.userTimeZone ?? "UTC";
+  const targetDateKey =
+    typeof input.dateString === "string" && isDateKey(input.dateString)
+      ? input.dateString
+      : dateKeyInTimeZone(input.dateString, userTimeZone);
   const matches = [...(input.matches ?? [])].sort((left, right) => new Date(left.date).getTime() - new Date(right.date).getTime());
   const matchesUpToCalculation = matches.filter((match) => new Date(match.date).getTime() <= cutoffTime);
-  const last14Matches = getRecentMatches(matchesUpToCalculation, input.dateString, 14);
+  const last14Matches = getRecentMatches(matchesUpToCalculation, targetDateKey, 14, userTimeZone);
   const recentMatches = matchesUpToCalculation.slice(-10);
   const matchMargins = recentMatches.map((match) => averageMatchMargin(match.games));
   const winRate = recentMatches.length === 0 ? 0 : recentMatches.filter((match) => match.result === "win").length / recentMatches.length;
   const daysSinceLastMatch =
     matchesUpToCalculation.length > 0
-      ? daysBetween(input.dateString, matchesUpToCalculation[matchesUpToCalculation.length - 1].date)
+      ? dayDifferenceInTimeZone(targetDateKey, matchesUpToCalculation[matchesUpToCalculation.length - 1].date, userTimeZone)
       : null;
   const avgMargin = round(average(matchMargins), 2);
   const matchAggregate = {
@@ -296,7 +304,7 @@ export const calculateReadinessScore = (input: ReadinessInput): ReadinessScore =
   const hasUsableWhoop = Boolean(whoop && baseline && hasEnoughWhoopHistory(baseline.observedDays));
   const physicalSource = hasUsableWhoop ? "whoop" : checkIn ? "checkin" : "fallback";
   const confidence = physicalSource === "whoop" ? "high" : physicalSource === "checkin" ? "medium" : "low";
-  const isNewAccount = input.userCreatedAt ? daysBetween(input.dateString, input.userCreatedAt) <= 14 : false;
+  const isNewAccount = input.userCreatedAt ? dayDifferenceInTimeZone(targetDateKey, input.userCreatedAt, userTimeZone) <= 14 : false;
   const hasEnoughMatchHistory = matches.length >= 3;
   const hasEnoughPhysicalHistory = hasUsableWhoop || Boolean(checkIn);
 
@@ -447,7 +455,7 @@ export const calculateReadinessScore = (input: ReadinessInput): ReadinessScore =
     .slice(0, 4);
 
   return {
-    dateString: isoDateKey(input.dateString),
+    dateString: targetDateKey,
     overall,
     physical,
     performance,

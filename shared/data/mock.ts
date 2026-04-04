@@ -272,6 +272,7 @@ export const buildSeedReadinessHistory = (
     history.push(
       calculateReadinessScore({
         dateString: date,
+        userTimeZone: seedProfile.timeZone,
         whoop: whoopSnapshot,
         baseline: whoopBaseline,
         dupr: {
@@ -309,6 +310,7 @@ export const createSeedData = () => {
 
     const currentReadiness = calculateReadinessScore({
       dateString: match.date,
+      userTimeZone: seedProfile.timeZone,
       whoop: seedWhoopToday,
       baseline: seedWhoopBaseline,
       dupr: seedDuprSnapshot,
@@ -343,6 +345,7 @@ export const createSeedData = () => {
   const readinessHistory = buildSeedReadinessHistory(enrichedMatches, seedDuprSnapshot, seedWhoopBaseline);
   const todayReadiness = calculateReadinessScore({
     dateString: new Date().toISOString(),
+    userTimeZone: seedProfile.timeZone,
     whoop: seedWhoopToday,
     baseline: seedWhoopBaseline,
     dupr: seedDuprSnapshot,

@@ -39,6 +39,7 @@ export const daysBetween = (laterIso: string, earlierIso: string) => {
 };
 
 export const isoDateKey = (isoString: string) => isoString.slice(0, 10);
+export const isDateKey = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
 
 const pad2 = (value: number) => value.toString().padStart(2, "0");
 
@@ -61,4 +62,20 @@ export const dateKeyInTimeZone = (value: Date | string, timeZone: string) => {
   const day = parts.find((part) => part.type === "day")?.value ?? "01";
 
   return `${year}-${month}-${day}`;
+};
+
+const dateKeyToUtcMs = (dateKey: string) => {
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return Date.UTC(year, month - 1, day, 12, 0, 0, 0);
+};
+
+export const dayDifferenceInTimeZone = (laterValue: Date | string, earlierValue: Date | string, timeZone: string) => {
+  const laterKey =
+    typeof laterValue === "string" && isDateKey(laterValue) ? laterValue : dateKeyInTimeZone(laterValue, timeZone);
+  const earlierKey =
+    typeof earlierValue === "string" && isDateKey(earlierValue)
+      ? earlierValue
+      : dateKeyInTimeZone(earlierValue, timeZone);
+
+  return Math.max(0, Math.floor((dateKeyToUtcMs(laterKey) - dateKeyToUtcMs(earlierKey)) / 86_400_000));
 };

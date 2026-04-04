@@ -232,6 +232,7 @@ const normalizeState = (state: DemoState): DemoState => {
   const todayReadiness = calculateReadinessScore({
     dateString: getTodayDateString(),
     calculatedAt: new Date().toISOString(),
+    userTimeZone: state.profile.timeZone,
     whoop: state.whoopToday ?? undefined,
     baseline: state.whoopBaseline ?? undefined,
     checkIn: getCurrentCheckIn(dailyCheckins) ?? undefined,

@@ -378,6 +378,7 @@ const buildReadinessForUser = async (
   return calculateReadinessScoreDomain({
     dateString: localDateKey,
     calculatedAt: now.toISOString(),
+    userTimeZone: profileTimeZone,
     whoop: toWhoopMetrics(latestWhoop),
     baseline: toWhoopBaseline(latestWhoop),
     dupr: toReadinessDupr(latestDupr, rootData),

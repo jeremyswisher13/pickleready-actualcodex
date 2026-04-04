@@ -105,6 +105,7 @@ export interface MatchAggregate {
 export interface ReadinessInput {
   dateString: string;
   calculatedAt?: string;
+  userTimeZone?: string;
   whoop?: WhoopMetrics | null;
   baseline?: WhoopBaseline | null;
   checkIn?: DailyCheckIn | null;

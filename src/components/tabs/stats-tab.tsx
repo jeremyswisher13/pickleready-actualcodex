@@ -58,6 +58,19 @@ export const StatsTab = ({
     [matches, range]
   );
   const hasWhoopTrend = filteredReadiness.some((entry) => typeof entry.whoopData.recoveryScore === "number");
+  const ratingDomain = useMemo<[number, number]>(() => {
+    const values = filteredRatings.flatMap((entry) =>
+      [entry.duprDoubles ?? entry.duprSingles, entry.recScore].filter((value): value is number => typeof value === "number")
+    );
+
+    if (values.length === 0) {
+      return [3.2, 5];
+    }
+
+    const min = Math.max(2, Math.floor((Math.min(...values) - 0.15) * 10) / 10);
+    const max = Math.min(8, Math.ceil((Math.max(...values) + 0.15) * 10) / 10);
+    return min === max ? [Math.max(2, min - 0.2), Math.min(8, max + 0.2)] : [min, max];
+  }, [filteredRatings]);
 
   const winCount = filteredMatches.filter((match) => match.result === "win").length;
   const lossCount = filteredMatches.filter((match) => match.result === "loss").length;
@@ -156,7 +169,7 @@ export const StatsTab = ({
             >
               <CartesianGrid stroke="#E5EEFF" vertical={false} />
               <XAxis axisLine={false} dataKey="date" tickLine={false} tick={{ fill: "#7D8AA8", fontSize: 11 }} />
-              <YAxis axisLine={false} domain={[3.5, 5]} tickLine={false} tick={{ fill: "#7D8AA8", fontSize: 11 }} />
+              <YAxis axisLine={false} domain={ratingDomain} tickLine={false} tick={{ fill: "#7D8AA8", fontSize: 11 }} />
               <Tooltip />
               <Line dataKey="dupr" dot={false} stroke="#6D8FF8" strokeWidth={2.5} type="monotone" />
               <Line dataKey="rec" dot={false} stroke="#2563EB" strokeWidth={3} type="monotone" />
