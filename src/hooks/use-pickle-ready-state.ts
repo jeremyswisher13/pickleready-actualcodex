@@ -1047,7 +1047,7 @@ export const usePickleReadyState = () => {
     }
 
     if (!liveWhoopConnectionAvailable) {
-      setError("Whoop connection is coded and ready, but this environment still needs the server deploy before it can be turned on.");
+      setError("Wearable connection is almost ready. Morning Check-In is active until the secure sync service is turned on for this environment.");
       return;
     }
 

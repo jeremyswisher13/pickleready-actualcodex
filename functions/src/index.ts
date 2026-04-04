@@ -761,6 +761,20 @@ const clearWhoopConnection = async (userId: string, rootData: Record<string, unk
   }
 };
 
+const ensureWhoopTokenSet = (
+  tokens: {
+    accessToken: string;
+    refreshToken: string;
+    expiresIn: number;
+    scope: string;
+  },
+  context: string
+) => {
+  if (!tokens.accessToken || !tokens.refreshToken || !tokens.expiresIn) {
+    throw new Error(`${context} did not return a complete Whoop token set.`);
+  }
+};
+
 export const createWhoopConnectUrl = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError("unauthenticated", "You must be signed in.");
@@ -883,6 +897,15 @@ export const whoopOAuthCallback = onRequest(async (request, response) => {
     const userDoc = await db.doc(`users/${userId}`).get();
     const rootData = (userDoc.data() ?? {}) as Record<string, unknown>;
     const tokenSet = await exchangeWhoopAuthorizationCode(code);
+    ensureWhoopTokenSet(
+      {
+        accessToken: tokenSet.access_token,
+        refreshToken: tokenSet.refresh_token,
+        expiresIn: tokenSet.expires_in,
+        scope: tokenSet.scope
+      },
+      "Whoop OAuth"
+    );
     let snapshot: Awaited<ReturnType<typeof fetchWhoopSnapshot>> | null = null;
 
     try {
@@ -929,31 +952,38 @@ export const calculateReadinessScore = onSchedule(
 
     await Promise.all(
       userSnapshots.docs.map(async (userDoc) => {
-        const rootData = userDoc.data();
-        const profile =
-          rootData.profile && typeof rootData.profile === "object"
-            ? (rootData.profile as Record<string, unknown>)
-            : rootData;
+        try {
+          const rootData = userDoc.data();
+          const profile =
+            rootData.profile && typeof rootData.profile === "object"
+              ? (rootData.profile as Record<string, unknown>)
+              : rootData;
 
-        if (!profile || typeof profile !== "object") {
-          return;
+          if (!profile || typeof profile !== "object") {
+            return;
+          }
+
+          const profileTimeZone = getProfileTimeZone(profile);
+          if (getHourInTimeZone(now, profileTimeZone) !== 6) {
+            return;
+          }
+
+          const readinessDateKey = dateKeyInTimeZone(now, profileTimeZone);
+          const existingReadiness = await db.doc(`users/${userDoc.id}/readinessScores/${readinessDateKey}`).get();
+          if (existingReadiness.exists) {
+            return;
+          }
+
+          const readiness = await buildReadinessForUser(userDoc.id, rootData, profile, now);
+          await db.doc(`users/${userDoc.id}/readinessScores/${readiness.dateString}`).set(toStoredReadiness(readiness), {
+            merge: true
+          });
+        } catch (error) {
+          logger.error("calculateReadinessScore failed for user", {
+            error: error instanceof Error ? error.message : String(error),
+            userId: userDoc.id
+          });
         }
-
-        const profileTimeZone = getProfileTimeZone(profile);
-        if (getHourInTimeZone(now, profileTimeZone) !== 6) {
-          return;
-        }
-
-        const readinessDateKey = dateKeyInTimeZone(now, profileTimeZone);
-        const existingReadiness = await db.doc(`users/${userDoc.id}/readinessScores/${readinessDateKey}`).get();
-        if (existingReadiness.exists) {
-          return;
-        }
-
-        const readiness = await buildReadinessForUser(userDoc.id, rootData, profile, now);
-        await db.doc(`users/${userDoc.id}/readinessScores/${readiness.dateString}`).set(toStoredReadiness(readiness), {
-          merge: true
-        });
       })
     );
   }
@@ -971,27 +1001,45 @@ export const syncWhoopData = onSchedule(
       userSnapshots.docs.map(async (userDoc) => {
         const userId = userDoc.id;
         const rootData = userDoc.data();
-        const whoopDocRef = db.doc(`users/${userId}/connectedAccounts/whoop`);
-        const whoopDoc = await whoopDocRef.get();
 
-        if (!whoopDoc.exists) {
-          return;
+        try {
+          const whoopDocRef = db.doc(`users/${userId}/connectedAccounts/whoop`);
+          const whoopDoc = await whoopDocRef.get();
+
+          if (!whoopDoc.exists) {
+            await clearWhoopConnection(userId, rootData);
+            return;
+          }
+
+          const payload = whoopDoc.data() as Record<string, unknown>;
+          const refreshed = await refreshWhoopAccessToken(decryptSecret(String(payload.refreshToken ?? "")));
+          ensureWhoopTokenSet(
+            {
+              accessToken: refreshed.access_token,
+              refreshToken: refreshed.refresh_token,
+              expiresIn: refreshed.expires_in,
+              scope: refreshed.scope
+            },
+            "Whoop refresh"
+          );
+          const snapshot = await fetchWhoopSnapshot(refreshed.access_token);
+          await persistWhoopConnection(
+            userId,
+            rootData,
+            {
+              accessToken: refreshed.access_token,
+              refreshToken: refreshed.refresh_token,
+              expiresIn: refreshed.expires_in,
+              scope: refreshed.scope
+            },
+            snapshot
+          );
+        } catch (error) {
+          logger.error("syncWhoopData failed for user", {
+            error: error instanceof Error ? error.message : String(error),
+            userId
+          });
         }
-
-        const payload = whoopDoc.data() as Record<string, unknown>;
-        const refreshed = await refreshWhoopAccessToken(decryptSecret(String(payload.refreshToken ?? "")));
-        const snapshot = await fetchWhoopSnapshot(refreshed.access_token);
-        await persistWhoopConnection(
-          userId,
-          rootData,
-          {
-            accessToken: refreshed.access_token,
-            refreshToken: refreshed.refresh_token,
-            expiresIn: refreshed.expires_in,
-            scope: refreshed.scope
-          },
-          snapshot
-        );
       })
     );
   }
@@ -1008,65 +1056,72 @@ export const syncDuprData = onSchedule(
 
     await Promise.all(
       userSnapshots.docs.map(async (userDoc) => {
-        const rootData = userDoc.data();
-        const profile =
-          rootData.profile && typeof rootData.profile === "object"
-            ? (rootData.profile as Record<string, unknown>)
-            : rootData;
-        const playerId = profile.duprPlayerId as string | undefined;
+        try {
+          const rootData = userDoc.data();
+          const profile =
+            rootData.profile && typeof rootData.profile === "object"
+              ? (rootData.profile as Record<string, unknown>)
+              : rootData;
+          const playerId = profile.duprPlayerId as string | undefined;
 
-        if (!playerId) {
-          return;
+          if (!playerId) {
+            return;
+          }
+
+          const [player, stats] = await Promise.all([
+            fetchDuprPlayer(token.token, playerId),
+            fetchDuprStats(token.token, playerId)
+          ]);
+
+          const duprSnapshot = {
+            singlesRating:
+              firstNumber(
+                getNested(player, ["singles", "rating"]),
+                getNested(stats, ["singles", "rating"]),
+                getNested(player, ["singlesRating"])
+              ) ?? null,
+            doublesRating:
+              firstNumber(
+                getNested(player, ["doubles", "rating"]),
+                getNested(stats, ["doubles", "rating"]),
+                getNested(player, ["doublesRating"])
+              ) ?? null,
+            ratingTrend14d:
+              firstNumber(
+                getNested(stats, ["trend14d"]),
+                getNested(stats, ["ratingTrend14d"]),
+                getNested(player, ["ratingTrend14d"])
+              ) ?? 0
+          };
+
+          await Promise.all([
+            db.doc(`users/${userDoc.id}/privateCache/duprLatest`).set(
+              {
+                ...duprSnapshot,
+                player,
+                stats,
+                latestSyncedAt: FieldValue.serverTimestamp()
+              },
+              { merge: true }
+            ),
+            db.doc(`users/${userDoc.id}`).set(
+              {
+                duprSnapshot
+              },
+              { merge: true }
+            )
+          ]);
+
+          const readiness = await buildReadinessForUser(userDoc.id, { ...rootData, duprSnapshot }, profile);
+          await db.doc(`users/${userDoc.id}/readinessScores/${readiness.dateString}`).set(toStoredReadiness(readiness), {
+            merge: true
+          });
+        } catch (error) {
+          logger.error("syncDuprData failed for user", {
+            error: error instanceof Error ? error.message : String(error),
+            userId: userDoc.id
+          });
         }
-
-        const [player, stats] = await Promise.all([
-          fetchDuprPlayer(token.token, playerId),
-          fetchDuprStats(token.token, playerId)
-        ]);
-
-        const duprSnapshot = {
-          singlesRating:
-            firstNumber(
-              getNested(player, ["singles", "rating"]),
-              getNested(stats, ["singles", "rating"]),
-              getNested(player, ["singlesRating"])
-            ) ?? null,
-          doublesRating:
-            firstNumber(
-              getNested(player, ["doubles", "rating"]),
-              getNested(stats, ["doubles", "rating"]),
-              getNested(player, ["doublesRating"])
-            ) ?? null,
-          ratingTrend14d:
-            firstNumber(
-              getNested(stats, ["trend14d"]),
-              getNested(stats, ["ratingTrend14d"]),
-              getNested(player, ["ratingTrend14d"])
-            ) ?? 0
-        };
-
-        await Promise.all([
-          db.doc(`users/${userDoc.id}/privateCache/duprLatest`).set(
-            {
-              ...duprSnapshot,
-              player,
-              stats,
-              latestSyncedAt: FieldValue.serverTimestamp()
-            },
-            { merge: true }
-          ),
-          db.doc(`users/${userDoc.id}`).set(
-            {
-              duprSnapshot
-            },
-            { merge: true }
-          )
-        ]);
-
-        const readiness = await buildReadinessForUser(userDoc.id, { ...rootData, duprSnapshot }, profile);
-        await db.doc(`users/${userDoc.id}/readinessScores/${readiness.dateString}`).set(toStoredReadiness(readiness), {
-          merge: true
-        });
       })
     );
   }
