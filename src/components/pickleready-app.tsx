@@ -112,7 +112,12 @@ export const PickleReadyApp = () => {
     setComposerOpen(true);
   };
 
-  const diagnosis = diagnoseFatigueVsMatchup(currentReadiness, state.matches, todayRecScore);
+  const diagnosis = diagnoseFatigueVsMatchup(
+    currentReadiness,
+    state.matches,
+    todayRecScore,
+    state.profile.timeZone
+  );
 
   const handleShare = async () => {
     const shareText = `My PickleReady today: readiness ${currentReadiness?.overall ?? 65} (${currentReadiness?.label ?? "Good for rec"}) and rec score ${todayRecScore.toFixed(2)}.`;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { ArrowRight, BarChart3, Sparkles, Trophy, Watch } from "lucide-react";
 import Link from "next/link";
 
@@ -28,6 +28,44 @@ export const LandingPage = ({
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [localAuthError, setLocalAuthError] = useState<string | null>(null);
+  const emailLooksValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+  const canSubmit = useMemo(() => {
+    if (!firebaseAvailable || authBusy || !emailLooksValid || password.length === 0) {
+      return false;
+    }
+
+    if (authMode === "signup") {
+      return displayName.trim().length >= 2 && password.length >= 6;
+    }
+
+    return true;
+  }, [authBusy, authMode, displayName, emailLooksValid, firebaseAvailable, password.length]);
+
+  const handleEmailSubmit = () => {
+    if (authMode === "signup" && displayName.trim().length < 2) {
+      setLocalAuthError("Add the name you want to use in the app.");
+      return;
+    }
+
+    if (!emailLooksValid) {
+      setLocalAuthError("Enter a valid email address.");
+      return;
+    }
+
+    if (authMode === "signup" && password.length < 6) {
+      setLocalAuthError("Use at least 6 characters for your password.");
+      return;
+    }
+
+    if (password.length === 0) {
+      setLocalAuthError("Enter your password to continue.");
+      return;
+    }
+
+    setLocalAuthError(null);
+    onEmailAuth({ mode: authMode, displayName, email, password });
+  };
 
   return (
     <div className="min-h-screen bg-hero px-4 py-5">
@@ -78,13 +116,19 @@ export const LandingPage = ({
                 { label: "Sign in", value: "signin" }
               ]}
               value={authMode}
-              onChange={setAuthMode}
+              onChange={(value) => {
+                setAuthMode(value);
+                setLocalAuthError(null);
+              }}
             />
 
             {authMode === "signup" ? (
               <input
                 className="w-full rounded-2xl border border-blue-100 bg-blue-50/40 px-4 py-3 text-sm text-ink outline-none ring-blue-300 transition focus:ring-2"
-                onChange={(event) => setDisplayName(event.target.value)}
+                onChange={(event) => {
+                  setDisplayName(event.target.value);
+                  setLocalAuthError(null);
+                }}
                 placeholder="Display name"
                 value={displayName}
               />
@@ -92,7 +136,10 @@ export const LandingPage = ({
 
             <input
               className="w-full rounded-2xl border border-blue-100 bg-blue-50/40 px-4 py-3 text-sm text-ink outline-none ring-blue-300 transition focus:ring-2"
-              onChange={(event) => setEmail(event.target.value)}
+              onChange={(event) => {
+                setEmail(event.target.value);
+                setLocalAuthError(null);
+              }}
               placeholder="Email"
               type="email"
               value={email}
@@ -100,7 +147,10 @@ export const LandingPage = ({
 
             <input
               className="w-full rounded-2xl border border-blue-100 bg-blue-50/40 px-4 py-3 text-sm text-ink outline-none ring-blue-300 transition focus:ring-2"
-              onChange={(event) => setPassword(event.target.value)}
+              onChange={(event) => {
+                setPassword(event.target.value);
+                setLocalAuthError(null);
+              }}
               placeholder="Password"
               type="password"
               value={password}
@@ -109,10 +159,10 @@ export const LandingPage = ({
             <button
               className={cn(
                 "inline-flex w-full items-center justify-center gap-2 rounded-[22px] bg-cta px-4 py-4 text-sm font-semibold text-white shadow-glow",
-                (!firebaseAvailable || authBusy) && "opacity-60"
+                !canSubmit && "opacity-60"
               )}
-              disabled={!firebaseAvailable || authBusy}
-              onClick={() => onEmailAuth({ mode: authMode, displayName, email, password })}
+              disabled={!canSubmit}
+              onClick={handleEmailSubmit}
               type="button"
             >
               {authBusy ? "Working..." : authMode === "signup" ? "Create account" : "Sign in"}
@@ -139,7 +189,11 @@ export const LandingPage = ({
               Explore demo mode
             </button>
 
+            {localAuthError ? <p className="text-sm leading-6 text-rose-600">{localAuthError}</p> : null}
             {authError ? <p className="text-sm leading-6 text-rose-600">{authError}</p> : null}
+            {authMode === "signup" && password.length > 0 && password.length < 6 ? (
+              <p className="text-sm leading-6 text-muted">Firebase requires at least 6 characters for a new password.</p>
+            ) : null}
             {!firebaseAvailable ? (
               <p className="text-sm leading-6 text-muted">
                 Account sign-in is not available on this build right now, so demo mode stays open.

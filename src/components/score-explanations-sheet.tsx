@@ -28,8 +28,8 @@ export const ScoreExplanationsSheet = ({
 
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-slate-950/40 p-3 backdrop-blur-sm">
-      <Card className="w-full max-w-[390px] overflow-hidden rounded-[32px]">
-        <div className="flex items-center justify-between border-b border-blue-50 px-5 py-4">
+      <Card className="flex max-h-[92vh] w-full max-w-[390px] flex-col overflow-hidden rounded-[32px]">
+        <div className="flex shrink-0 items-center justify-between border-b border-blue-50 px-5 py-4">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-blue-500">Why it changed</p>
             <h3 className="text-lg font-semibold text-ink">{title}</h3>
@@ -39,7 +39,7 @@ export const ScoreExplanationsSheet = ({
           </button>
         </div>
 
-        <div className="space-y-4 px-5 pb-6 pt-5">
+        <div className="min-h-0 space-y-4 overflow-y-auto px-5 pb-6 pt-5">
           <div className="rounded-[24px] bg-gradient-to-br from-cyan-50 via-blue-50 to-violet-50 p-4">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-500">Current score</p>
             <p className="mt-2 text-4xl font-bold tracking-[-0.05em] text-ink">{score}</p>

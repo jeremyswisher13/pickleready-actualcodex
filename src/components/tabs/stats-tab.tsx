@@ -44,6 +44,7 @@ export const StatsTab = ({
   matches: MatchRecord[];
 }) => {
   const [range, setRange] = useState<RangeFilter>("30");
+  const readinessTitle = range === "30" ? "30-day readiness arc" : range === "90" ? "90-day readiness arc" : "All-time readiness arc";
 
   const filteredReadiness = useMemo(
     () => readinessHistory.filter((entry) => inRange(entry.calculatedAt, range)),
@@ -136,7 +137,7 @@ export const StatsTab = ({
       </div>
 
       <Card className="px-4 py-5">
-        <SectionTitle eyebrow="Readiness" title="30-day readiness arc" />
+        <SectionTitle eyebrow="Readiness" title={readinessTitle} />
         <div className="mt-4 h-56">
           <ResponsiveContainer>
             <AreaChart data={filteredReadiness.map((entry) => ({ date: formatShortDate(entry.calculatedAt), score: entry.overall }))}>

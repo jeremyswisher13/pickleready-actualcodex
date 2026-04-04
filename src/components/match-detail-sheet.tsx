@@ -37,6 +37,10 @@ export const MatchDetailSheet = ({
   const expectedOutcome = opponentRating
     ? Math.round(calculateExpectedOutcome(preMatchRecScore, opponentRating) * 100)
     : null;
+  const insightText =
+    match.postMatchInsight.trim().length > 0
+      ? match.postMatchInsight
+      : "Insight will appear after the scoring pipeline finishes syncing this match.";
 
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center overflow-y-auto bg-slate-950/40 p-3 backdrop-blur-sm">
@@ -98,7 +102,7 @@ export const MatchDetailSheet = ({
             <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-blue-500">
               Post-match insight <ArrowRight className="h-3.5 w-3.5" />
             </div>
-            <p className="mt-3 text-sm leading-6 text-ink">{match.postMatchInsight}</p>
+            <p className="mt-3 text-sm leading-6 text-ink">{insightText}</p>
           </div>
 
           {match.notes ? (

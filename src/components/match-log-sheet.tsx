@@ -91,10 +91,12 @@ export const MatchLogSheet = ({
   onSave
 }: MatchLogSheetProps) => {
   const [draft, setDraft] = useState<MatchDraft>(createDraft(initialMatch, prefilledOpponentName));
+  const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
       setDraft(createDraft(initialMatch, prefilledOpponentName));
+      setFormError(null);
     }
   }, [initialMatch, open, prefilledOpponentName]);
 
@@ -127,45 +129,108 @@ export const MatchLogSheet = ({
   };
 
   const handleSubmit = () => {
+    const parsedDate = new Date(draft.date);
+    if (Number.isNaN(parsedDate.getTime())) {
+      setFormError("Add a valid match date and time.");
+      return;
+    }
+
+    if (draft.matchType === "doubles" && draft.partnerName.trim().length === 0) {
+      setFormError("Add your partner before logging a doubles match.");
+      return;
+    }
+
+    if (draft.partnerRating.trim().length > 0 && !Number.isFinite(Number(draft.partnerRating))) {
+      setFormError("Use a valid numeric rating for your partner, or leave it blank.");
+      return;
+    }
+
     const preparedOpponents = draft.opponents
       .slice(0, opponentSlots)
       .filter((opponent) => opponent.name.trim().length > 0)
       .map((opponent) => {
         const known = knownOpponentMap.get(opponent.name.trim().toLowerCase());
+        const parsedRating = opponent.rating.trim().length > 0 ? Number(opponent.rating) : known?.rating;
+
+        if (opponent.rating.trim().length > 0 && !Number.isFinite(parsedRating)) {
+          return null;
+        }
+
         return {
           name: opponent.name.trim(),
-          rating: opponent.rating ? Number(opponent.rating) : known?.rating,
+          rating: parsedRating,
           duprId: known?.duprId,
           userId: known?.userId
         };
       });
+    const visibleGames = draft.games.slice(0, draft.gameCount);
 
-    const preparedGames = draft.games
-      .slice(0, draft.gameCount)
-      .filter((game) => game.myScore !== "" && game.opponentScore !== "")
+    if (preparedOpponents.some((opponent) => opponent == null)) {
+      setFormError("Use a valid numeric rating for opponents, or leave the rating blank.");
+      return;
+    }
+
+    const validOpponents = preparedOpponents.filter(
+      (opponent): opponent is NonNullable<(typeof preparedOpponents)[number]> => Boolean(opponent)
+    );
+
+    if (validOpponents.length !== opponentSlots) {
+      setFormError(`Add ${opponentSlots === 1 ? "your opponent" : "both opponents"} before logging the match.`);
+      return;
+    }
+
+    if (
+      visibleGames.some(
+        (game) =>
+          (game.myScore.trim().length > 0 && game.opponentScore.trim().length === 0) ||
+          (game.myScore.trim().length === 0 && game.opponentScore.trim().length > 0)
+      )
+    ) {
+      setFormError("Complete both sides of each score row, or clear the row entirely.");
+      return;
+    }
+
+    const preparedGames = visibleGames
+      .filter((game) => game.myScore.trim().length > 0 && game.opponentScore.trim().length > 0)
       .map((game) => ({
         myScore: Number(game.myScore),
         opponentScore: Number(game.opponentScore)
       }));
 
-    if (preparedOpponents.length === 0 || preparedGames.length < 2) {
+    if (
+      preparedGames.some(
+        (game) =>
+          !Number.isFinite(game.myScore) ||
+          !Number.isFinite(game.opponentScore) ||
+          !Number.isInteger(game.myScore) ||
+          !Number.isInteger(game.opponentScore) ||
+          game.myScore < 0 ||
+          game.opponentScore < 0
+      )
+    ) {
+      setFormError("Enter whole, non-negative scores for each completed game.");
       return;
     }
 
-    const opponentRatings = preparedOpponents
+    if (preparedGames.length < 2) {
+      setFormError("Log at least two completed games before saving the match.");
+      return;
+    }
+
+    const opponentRatings = validOpponents
       .map((opponent) => opponent.rating)
       .filter((rating): rating is number => typeof rating === "number");
 
     const match: MatchRecord = {
       id: initialMatch?.id ?? `match-${crypto.randomUUID()}`,
-      date: new Date(draft.date).toISOString(),
+      date: parsedDate.toISOString(),
       createdAt: initialMatch?.createdAt ?? new Date().toISOString(),
       matchType: draft.matchType,
       category: draft.category,
       format: draft.format,
       environment: draft.environment,
       genderFormat: draft.genderFormat,
-      opponents: preparedOpponents,
+      opponents: validOpponents,
       partner:
         draft.matchType === "doubles" && draft.partnerName.trim()
           ? {
@@ -183,6 +248,7 @@ export const MatchLogSheet = ({
       opponentAverageRating: opponentRatings.length > 0 ? average(opponentRatings) : undefined
     };
 
+    setFormError(null);
     onSave(match);
     onClose();
   };
@@ -415,6 +481,7 @@ export const MatchLogSheet = ({
           >
             {initialMatch ? "Save match changes" : "Log match and update scores"}
           </button>
+          {formError ? <p className="text-sm leading-6 text-rose-600">{formError}</p> : null}
         </div>
       </Card>
     </div>

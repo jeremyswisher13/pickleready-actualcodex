@@ -1,4 +1,5 @@
 import type { MatchRecord, ReadinessScore } from "./types";
+import { dateKeyInTimeZone } from "./utils";
 
 export interface MatchupDiagnosis {
   verdict: "fatigue" | "matchup" | "mixed" | "steady";
@@ -26,7 +27,8 @@ const getOpponentAverageRating = (match: MatchRecord) => {
 export const diagnoseFatigueVsMatchup = (
   readiness: ReadinessScore | null,
   matches: MatchRecord[],
-  currentRecScore: number
+  currentRecScore: number,
+  userTimeZone = "UTC"
 ): MatchupDiagnosis => {
   if (!readiness || matches.length === 0) {
     return {
@@ -41,6 +43,21 @@ export const diagnoseFatigueVsMatchup = (
   }
 
   const latestMatch = [...matches].sort((left, right) => new Date(right.date).getTime() - new Date(left.date).getTime())[0];
+  const latestMatchDateKey = dateKeyInTimeZone(latestMatch.date, userTimeZone);
+
+  if (latestMatchDateKey !== readiness.dateString) {
+    return {
+      verdict: "steady",
+      headline: "Today is still pre-match",
+      summary:
+        "You have a readiness score for today, but you have not logged a same-day match yet, so the fatigue-versus-matchup call is waiting on a fresh result.",
+      supportingPoints: [
+        `Today's readiness is ${readiness.overall} and points to a ${readiness.label.toLowerCase()} type of day.`,
+        `Your latest logged result was on ${latestMatchDateKey}, so today's diagnosis will sharpen after you log a match.`
+      ]
+    };
+  }
+
   const opponentRating = getOpponentAverageRating(latestMatch);
   const readinessGap = readiness.overall - 65;
   const ratingGap = typeof opponentRating === "number" ? opponentRating - currentRecScore : 0;
