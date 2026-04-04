@@ -13,11 +13,14 @@
 html,
 body {
   margin: 0;
+  width: 100%;
   min-height: 100%;
+  overflow-x: clip;
 }
 
 html {
   scroll-behavior: smooth;
+  overscroll-behavior-x: none;
 }
 
 body {
@@ -35,6 +38,14 @@ input,
 textarea,
 select {
   font: inherit;
+}
+
+@media (max-width: 640px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
 }
 
 button {
