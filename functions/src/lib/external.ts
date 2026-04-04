@@ -4,6 +4,14 @@ const WHOOP_BASE = "https://api.prod.whoop.com/developer";
 const WHOOP_AUTH_BASE = "https://api.prod.whoop.com/oauth/oauth2";
 const DUPR_BASE = "https://api.dupr.gg";
 
+interface WhoopAuthResult {
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
+  scope: string;
+  token_type: string;
+}
+
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function parseJson<T>(response: Response): Promise<T> {
@@ -49,6 +57,35 @@ export async function refreshWhoopAccessToken(refreshToken: string) {
         refresh_token: refreshToken,
         client_id: clientId,
         client_secret: clientSecret,
+        redirect_uri: redirectUri,
+        scope: "offline"
+      }),
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      method: "POST"
+    });
+
+    return parseJson<WhoopAuthResult>(response);
+  });
+}
+
+export async function exchangeWhoopAuthorizationCode(code: string) {
+  const clientId = process.env.WHOOP_CLIENT_ID;
+  const clientSecret = process.env.WHOOP_CLIENT_SECRET;
+  const redirectUri = process.env.WHOOP_REDIRECT_URI;
+
+  if (!clientId || !clientSecret || !redirectUri) {
+    throw new Error("Missing WHOOP OAuth environment variables.");
+  }
+
+  return withBackoff("exchangeWhoopAuthorizationCode", async () => {
+    const response = await fetch(`${WHOOP_AUTH_BASE}/token`, {
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        client_id: clientId,
+        client_secret: clientSecret,
         redirect_uri: redirectUri
       }),
       headers: {
@@ -57,12 +94,22 @@ export async function refreshWhoopAccessToken(refreshToken: string) {
       method: "POST"
     });
 
-    return parseJson<{
-      access_token: string;
-      refresh_token: string;
-      expires_in: number;
-      scope: string;
-    }>(response);
+    return parseJson<WhoopAuthResult>(response);
+  });
+}
+
+export async function revokeWhoopAccess(accessToken: string) {
+  return withBackoff("revokeWhoopAccess", async () => {
+    const response = await fetch(`${WHOOP_BASE}/v2/user/access`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`
+      },
+      method: "DELETE"
+    });
+
+    if (!response.ok && response.status !== 204) {
+      throw new Error(`Request failed (${response.status}): ${await response.text()}`);
+    }
   });
 }
 

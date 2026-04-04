@@ -1,7 +1,9 @@
+import { randomBytes } from "node:crypto";
+
 import { initializeApp } from "firebase-admin/app";
 import { FieldValue, Timestamp, WriteBatch, getFirestore } from "firebase-admin/firestore";
 import { onDocumentCreated, onDocumentWritten } from "firebase-functions/v2/firestore";
-import { HttpsError, onCall } from "firebase-functions/v2/https";
+import { HttpsError, onCall, onRequest } from "firebase-functions/v2/https";
 import { logger } from "firebase-functions";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 
@@ -13,16 +15,28 @@ import { dateKeyInTimeZone, isoDateKey } from "../../shared/domain/utils";
 
 import { decryptSecret, encryptSecret } from "./lib/crypto";
 import {
+  exchangeWhoopAuthorizationCode,
   fetchDuprPlayer,
   fetchDuprReadOnlyToken,
   fetchDuprStats,
   fetchWhoopSnapshot,
-  refreshWhoopAccessToken
+  refreshWhoopAccessToken,
+  revokeWhoopAccess
 } from "./lib/external";
 
 initializeApp();
 
 const db = getFirestore();
+const WHOOP_OAUTH_SCOPES = [
+  "offline",
+  "read:recovery",
+  "read:cycles",
+  "read:sleep",
+  "read:workout",
+  "read:profile",
+  "read:body_measurement"
+] as const;
+const WHOOP_STATE_CHARSET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
 
 const asNumber = (value: unknown) => {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -35,6 +49,61 @@ const asNumber = (value: unknown) => {
   }
 
   return undefined;
+};
+
+const asString = (value: unknown) => (typeof value === "string" ? value : "");
+
+const createWhoopOAuthState = () =>
+  Array.from(randomBytes(8), (value) => WHOOP_STATE_CHARSET[value % WHOOP_STATE_CHARSET.length]).join("");
+
+const getConfiguredAppUrl = () =>
+  process.env.APP_URL ??
+  process.env.NEXT_PUBLIC_APP_URL ??
+  (process.env.GCLOUD_PROJECT ? `https://${process.env.GCLOUD_PROJECT}.web.app` : "http://localhost:3000");
+
+const parseUrl = (value: string) => {
+  try {
+    return new URL(value);
+  } catch {
+    return null;
+  }
+};
+
+const normalizeOrigin = (value: unknown) => {
+  const candidate = typeof value === "string" ? value : Array.isArray(value) ? value[0] : "";
+  const parsed = parseUrl(candidate);
+  return parsed?.origin ?? "";
+};
+
+const resolveContinueUrl = (candidate: unknown, originHeader: unknown) => {
+  const fallbackUrl = getConfiguredAppUrl();
+  const fallback = parseUrl(fallbackUrl);
+  const fallbackOrigin = fallback?.origin ?? "";
+  const origin = normalizeOrigin(originHeader);
+  const allowedOrigins = new Set([fallbackOrigin, origin].filter(Boolean));
+  const requested = parseUrl(asString(candidate));
+
+  if (requested && allowedOrigins.has(requested.origin)) {
+    return requested.toString();
+  }
+
+  if (fallback) {
+    return fallback.toString();
+  }
+
+  return origin || "http://localhost:3000";
+};
+
+const buildWhoopRedirectUrl = (target: string, status: "connected" | "error", message?: string) => {
+  const fallbackUrl = getConfiguredAppUrl();
+  const url = parseUrl(target) ?? parseUrl(fallbackUrl) ?? new URL("http://localhost:3000");
+
+  url.searchParams.set("whoop", status);
+  if (message) {
+    url.searchParams.set("whoopMessage", message.slice(0, 140));
+  }
+
+  return url.toString();
 };
 
 const getNested = (value: unknown, path: string[]): unknown =>
@@ -268,6 +337,70 @@ const toWhoopBaseline = (payload: Record<string, unknown> | null) =>
       }
     : undefined;
 
+const getWhoopUserId = (profile: Record<string, unknown> | null) =>
+  String(getNested(profile, ["user_id"]) ?? getNested(profile, ["id"]) ?? "");
+
+const toWhoopCacheDocument = (snapshot: Awaited<ReturnType<typeof fetchWhoopSnapshot>>) => {
+  const recovery = snapshot.recovery;
+  const cycle = snapshot.cycle;
+  const sleep = snapshot.sleep;
+
+  return {
+    recoveryScore:
+      firstNumber(
+        getNested(recovery, ["score", "recovery_score"]),
+        getNested(recovery, ["score", "score"]),
+        getNested(recovery, ["recovery_score"])
+      ) ?? 65,
+    hrvRmssd:
+      firstNumber(
+        getNested(recovery, ["score", "hrv_rmssd_milli"]),
+        getNested(recovery, ["score", "hrv_rmssd_ms"]),
+        getNested(recovery, ["score", "hrv_rmssd"])
+      ) ?? 55,
+    restingHeartRate:
+      firstNumber(getNested(recovery, ["score", "resting_heart_rate"]), getNested(recovery, ["resting_heart_rate"])) ??
+      54,
+    sleepPerformance:
+      firstNumber(
+        getNested(sleep, ["score", "sleep_performance_percentage"]),
+        getNested(sleep, ["sleep_performance_percentage"])
+      ) ?? 82,
+    sleepDurationMs:
+      firstNumber(
+        getNested(sleep, ["score", "stage_summary", "total_in_bed_time_milli"]),
+        getNested(sleep, ["sleep_duration_ms"])
+      ) ?? 25_200_000,
+    strain: firstNumber(getNested(cycle, ["score", "strain"]), getNested(cycle, ["strain"])) ?? 10,
+    cycleId: String(getNested(cycle, ["id"]) ?? getNested(cycle, ["cycle_id"]) ?? "whoop-cycle"),
+    avgHrvRmssd7d:
+      firstNumber(
+        getNested(recovery, ["score", "hrv_rmssd_milli"]),
+        getNested(recovery, ["score", "hrv_rmssd_ms"]),
+        getNested(recovery, ["score", "hrv_rmssd"])
+      ) ?? 55,
+    avgRestingHeartRate7d:
+      firstNumber(getNested(recovery, ["score", "resting_heart_rate"]), getNested(recovery, ["resting_heart_rate"])) ??
+      54,
+    avgStrain7d: firstNumber(getNested(cycle, ["score", "strain"]), getNested(cycle, ["strain"])) ?? 10,
+    avgSleepDurationMs7d:
+      firstNumber(
+        getNested(sleep, ["score", "stage_summary", "total_in_bed_time_milli"]),
+        getNested(sleep, ["sleep_duration_ms"])
+      ) ?? 25_200_000,
+    avgRecovery7d:
+      firstNumber(
+        getNested(recovery, ["score", "recovery_score"]),
+        getNested(recovery, ["score", "score"]),
+        getNested(recovery, ["recovery_score"])
+      ) ?? 65,
+    weeklyActivityScore: 78,
+    observedDays: 7,
+    latestSnapshot: snapshot,
+    latestSyncedAt: FieldValue.serverTimestamp()
+  };
+};
+
 const toReadinessDupr = (privateSnapshot: Record<string, unknown> | null, rootData: Record<string, unknown>) => {
   if (privateSnapshot && (typeof privateSnapshot.doublesRating === "number" || typeof privateSnapshot.singlesRating === "number")) {
     return {
@@ -493,6 +626,298 @@ const syncMatchDerivedStateForUser = async (userId: string, rootData: Record<str
 
 const docRef = (path: string) => db.doc(path);
 
+const getWhoopOAuthConfig = () => {
+  const clientId = process.env.WHOOP_CLIENT_ID;
+  const redirectUri = process.env.WHOOP_REDIRECT_URI;
+
+  if (!clientId || !redirectUri) {
+    throw new HttpsError("failed-precondition", "WHOOP OAuth is not configured for this environment yet.");
+  }
+
+  return { clientId, redirectUri };
+};
+
+const buildWhoopAuthorizationUrl = (state: string) => {
+  const { clientId, redirectUri } = getWhoopOAuthConfig();
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    scope: WHOOP_OAUTH_SCOPES.join(" "),
+    state
+  });
+
+  return `https://api.prod.whoop.com/oauth/oauth2/auth?${params.toString()}`;
+};
+
+const refreshReadinessForUser = async (
+  userId: string,
+  rootData: Record<string, unknown>,
+  profile: Record<string, unknown>,
+  now = new Date()
+) => {
+  const readiness = await buildReadinessForUser(userId, rootData, profile, now);
+  await db.doc(`users/${userId}/readinessScores/${readiness.dateString}`).set(toStoredReadiness(readiness), { merge: true });
+  return readiness;
+};
+
+const persistWhoopConnection = async (
+  userId: string,
+  rootData: Record<string, unknown>,
+  tokens: {
+    accessToken: string;
+    refreshToken: string;
+    expiresIn: number;
+    scope: string;
+  },
+  snapshot: Awaited<ReturnType<typeof fetchWhoopSnapshot>> | null
+) => {
+  const rootProfile =
+    rootData.profile && typeof rootData.profile === "object"
+      ? (rootData.profile as Record<string, unknown>)
+      : rootData;
+  const whoopUserId = snapshot ? getWhoopUserId(snapshot.profile) : asString(rootProfile.whoopUserId);
+  const nextProfile = {
+    ...rootProfile,
+    whoopConnected: true,
+    whoopUserId,
+    updatedAt: new Date().toISOString()
+  };
+  const nextRootData =
+    rootData.profile && typeof rootData.profile === "object"
+      ? {
+          ...rootData,
+          profile: nextProfile
+        }
+      : nextProfile;
+
+  const writes = [
+    db.doc(`users/${userId}/connectedAccounts/whoop`).set(
+      {
+        accessToken: encryptSecret(tokens.accessToken),
+        refreshToken: encryptSecret(tokens.refreshToken),
+        expiresAt: Timestamp.fromMillis(Date.now() + tokens.expiresIn * 1000),
+        scopes: tokens.scope.split(" ").filter(Boolean)
+      },
+      { merge: true }
+    ),
+    db.doc(`users/${userId}`).set(
+      {
+        profile: {
+          whoopConnected: true,
+          whoopUserId
+        }
+      },
+      { merge: true }
+    )
+  ];
+
+  if (snapshot) {
+    writes.push(db.doc(`users/${userId}/privateCache/whoopLatest`).set(toWhoopCacheDocument(snapshot), { merge: true }));
+  }
+
+  await Promise.all(writes);
+
+  if (nextProfile && typeof nextProfile === "object") {
+    await refreshReadinessForUser(userId, nextRootData, nextProfile);
+  }
+};
+
+const clearWhoopConnection = async (userId: string, rootData: Record<string, unknown>) => {
+  const rootProfile =
+    rootData.profile && typeof rootData.profile === "object"
+      ? (rootData.profile as Record<string, unknown>)
+      : rootData;
+  const nextProfile = {
+    ...rootProfile,
+    whoopConnected: false,
+    whoopUserId: "",
+    updatedAt: new Date().toISOString()
+  };
+  const nextRootData =
+    rootData.profile && typeof rootData.profile === "object"
+      ? {
+          ...rootData,
+          profile: nextProfile
+        }
+      : nextProfile;
+
+  await Promise.all([
+    db.doc(`users/${userId}/connectedAccounts/whoop`).delete().catch(() => undefined),
+    db.doc(`users/${userId}/privateCache/whoopLatest`).delete().catch(() => undefined),
+    db.doc(`users/${userId}`).set(
+      {
+        profile: {
+          whoopConnected: false,
+          whoopUserId: ""
+        }
+      },
+      { merge: true }
+    )
+  ]);
+
+  if (nextProfile && typeof nextProfile === "object") {
+    await refreshReadinessForUser(userId, nextRootData, nextProfile);
+  }
+};
+
+export const createWhoopConnectUrl = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be signed in.");
+  }
+
+  const continueUrl = resolveContinueUrl(
+    (request.data as Record<string, unknown> | null)?.continueUrl,
+    request.rawRequest.headers.origin
+  );
+  const state = createWhoopOAuthState();
+  const now = Date.now();
+
+  await db.doc(`oauthStates/${state}`).set({
+    continueUrl,
+    createdAt: Timestamp.fromMillis(now),
+    expiresAt: Timestamp.fromMillis(now + 15 * 60 * 1000),
+    provider: "whoop",
+    userId: request.auth.uid
+  });
+
+  return {
+    url: buildWhoopAuthorizationUrl(state)
+  };
+});
+
+export const disconnectWhoop = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "You must be signed in.");
+  }
+
+  const userId = request.auth.uid;
+  const [userDoc, whoopDoc] = await Promise.all([
+    db.doc(`users/${userId}`).get(),
+    db.doc(`users/${userId}/connectedAccounts/whoop`).get()
+  ]);
+  const rootData = (userDoc.data() ?? {}) as Record<string, unknown>;
+
+  if (whoopDoc.exists) {
+    const payload = whoopDoc.data() as Record<string, unknown>;
+    const encryptedAccessToken = asString(payload.accessToken);
+    const encryptedRefreshToken = asString(payload.refreshToken);
+
+    try {
+      if (encryptedAccessToken) {
+        await revokeWhoopAccess(decryptSecret(encryptedAccessToken));
+      } else if (encryptedRefreshToken) {
+        const refreshed = await refreshWhoopAccessToken(decryptSecret(encryptedRefreshToken));
+        await revokeWhoopAccess(refreshed.access_token);
+      }
+    } catch (error) {
+      if (encryptedRefreshToken) {
+        try {
+          const refreshed = await refreshWhoopAccessToken(decryptSecret(encryptedRefreshToken));
+          await revokeWhoopAccess(refreshed.access_token);
+        } catch (refreshError) {
+          logger.warn("disconnectWhoop revoke failed after refresh", {
+            error: refreshError instanceof Error ? refreshError.message : String(refreshError),
+            userId
+          });
+        }
+      } else {
+        logger.warn("disconnectWhoop revoke failed", {
+          error: error instanceof Error ? error.message : String(error),
+          userId
+        });
+      }
+    }
+  }
+
+  await clearWhoopConnection(userId, rootData);
+
+  return { disconnected: true };
+});
+
+export const whoopOAuthCallback = onRequest(async (request, response) => {
+  const state = asString(request.query.state);
+  const code = asString(request.query.code);
+  const oauthError = asString(request.query.error);
+  const oauthErrorDescription = asString(request.query.error_description);
+  const fallbackContinueUrl = resolveContinueUrl(undefined, request.headers.origin);
+
+  if (!state) {
+    response.redirect(303, buildWhoopRedirectUrl(fallbackContinueUrl, "error", "Missing Whoop state."));
+    return;
+  }
+
+  const stateRef = db.doc(`oauthStates/${state}`);
+  const stateSnapshot = await stateRef.get();
+
+  if (!stateSnapshot.exists) {
+    response.redirect(303, buildWhoopRedirectUrl(fallbackContinueUrl, "error", "That Whoop session expired. Start again."));
+    return;
+  }
+
+  const oauthState = stateSnapshot.data() as Record<string, unknown>;
+  const continueUrl = resolveContinueUrl(oauthState.continueUrl, request.headers.origin);
+  const expiresAt = oauthState.expiresAt instanceof Timestamp ? oauthState.expiresAt.toMillis() : 0;
+
+  if (oauthState.provider !== "whoop" || !oauthState.userId || (expiresAt && expiresAt < Date.now())) {
+    await stateRef.delete().catch(() => undefined);
+    response.redirect(303, buildWhoopRedirectUrl(continueUrl, "error", "That Whoop session expired. Start again."));
+    return;
+  }
+
+  if (oauthError) {
+    await stateRef.delete().catch(() => undefined);
+    const message = oauthErrorDescription || oauthError.replace(/_/g, " ");
+    response.redirect(303, buildWhoopRedirectUrl(continueUrl, "error", message));
+    return;
+  }
+
+  if (!code) {
+    await stateRef.delete().catch(() => undefined);
+    response.redirect(303, buildWhoopRedirectUrl(continueUrl, "error", "Whoop did not return an authorization code."));
+    return;
+  }
+
+  try {
+    const userId = asString(oauthState.userId);
+    const userDoc = await db.doc(`users/${userId}`).get();
+    const rootData = (userDoc.data() ?? {}) as Record<string, unknown>;
+    const tokenSet = await exchangeWhoopAuthorizationCode(code);
+    let snapshot: Awaited<ReturnType<typeof fetchWhoopSnapshot>> | null = null;
+
+    try {
+      snapshot = await fetchWhoopSnapshot(tokenSet.access_token);
+    } catch (error) {
+      logger.warn("whoopOAuthCallback snapshot fetch failed", {
+        error: error instanceof Error ? error.message : String(error),
+        userId
+      });
+    }
+
+    await persistWhoopConnection(
+      userId,
+      rootData,
+      {
+        accessToken: tokenSet.access_token,
+        refreshToken: tokenSet.refresh_token,
+        expiresIn: tokenSet.expires_in,
+        scope: tokenSet.scope
+      },
+      snapshot
+    );
+    await stateRef.delete().catch(() => undefined);
+
+    response.redirect(303, buildWhoopRedirectUrl(continueUrl, "connected"));
+  } catch (error) {
+    logger.error("whoopOAuthCallback failed", {
+      error: error instanceof Error ? error.message : String(error),
+      state
+    });
+    await stateRef.delete().catch(() => undefined);
+    response.redirect(303, buildWhoopRedirectUrl(continueUrl, "error", "Whoop connection failed. Please try again."));
+  }
+});
+
 export const calculateReadinessScore = onSchedule(
   {
     schedule: "0 * * * *",
@@ -556,118 +981,17 @@ export const syncWhoopData = onSchedule(
         const payload = whoopDoc.data() as Record<string, unknown>;
         const refreshed = await refreshWhoopAccessToken(decryptSecret(String(payload.refreshToken ?? "")));
         const snapshot = await fetchWhoopSnapshot(refreshed.access_token);
-        const recovery = snapshot.recovery;
-        const cycle = snapshot.cycle;
-        const sleep = snapshot.sleep;
-        const profile = snapshot.profile;
-        const whoopUserId = String(getNested(profile, ["user_id"]) ?? getNested(profile, ["id"]) ?? "");
-        const profileRecord =
-          rootData.profile && typeof rootData.profile === "object"
-            ? (rootData.profile as Record<string, unknown>)
-            : rootData;
-
-        await Promise.all([
-          whoopDocRef.set(
-            {
-              accessToken: encryptSecret(refreshed.access_token),
-              refreshToken: encryptSecret(refreshed.refresh_token),
-              expiresAt: Timestamp.fromMillis(Date.now() + refreshed.expires_in * 1000),
-              scopes: refreshed.scope.split(" ")
-            },
-            { merge: true }
-          ),
-          db.doc(`users/${userId}/privateCache/whoopLatest`).set(
-            {
-              recoveryScore:
-                firstNumber(
-                  getNested(recovery, ["score", "recovery_score"]),
-                  getNested(recovery, ["score", "score"]),
-                  getNested(recovery, ["recovery_score"])
-                ) ?? 65,
-              hrvRmssd:
-                firstNumber(
-                  getNested(recovery, ["score", "hrv_rmssd_milli"]),
-                  getNested(recovery, ["score", "hrv_rmssd_ms"]),
-                  getNested(recovery, ["score", "hrv_rmssd"])
-                ) ?? 55,
-              restingHeartRate:
-                firstNumber(
-                  getNested(recovery, ["score", "resting_heart_rate"]),
-                  getNested(recovery, ["resting_heart_rate"])
-                ) ?? 54,
-              sleepPerformance:
-                firstNumber(
-                  getNested(sleep, ["score", "sleep_performance_percentage"]),
-                  getNested(sleep, ["sleep_performance_percentage"])
-                ) ?? 82,
-              sleepDurationMs:
-                firstNumber(
-                  getNested(sleep, ["score", "stage_summary", "total_in_bed_time_milli"]),
-                  getNested(sleep, ["sleep_duration_ms"])
-                ) ?? 25_200_000,
-              strain:
-                firstNumber(
-                  getNested(cycle, ["score", "strain"]),
-                  getNested(cycle, ["strain"])
-                ) ?? 10,
-              cycleId: String(getNested(cycle, ["id"]) ?? getNested(cycle, ["cycle_id"]) ?? "whoop-cycle"),
-              avgHrvRmssd7d:
-                firstNumber(
-                  getNested(recovery, ["score", "hrv_rmssd_milli"]),
-                  getNested(recovery, ["score", "hrv_rmssd_ms"]),
-                  getNested(recovery, ["score", "hrv_rmssd"])
-                ) ?? 55,
-              avgRestingHeartRate7d:
-                firstNumber(
-                  getNested(recovery, ["score", "resting_heart_rate"]),
-                  getNested(recovery, ["resting_heart_rate"])
-                ) ?? 54,
-              avgStrain7d:
-                firstNumber(
-                  getNested(cycle, ["score", "strain"]),
-                  getNested(cycle, ["strain"])
-                ) ?? 10,
-              avgSleepDurationMs7d:
-                firstNumber(
-                  getNested(sleep, ["score", "stage_summary", "total_in_bed_time_milli"]),
-                  getNested(sleep, ["sleep_duration_ms"])
-                ) ?? 25_200_000,
-              avgRecovery7d:
-                firstNumber(
-                  getNested(recovery, ["score", "recovery_score"]),
-                  getNested(recovery, ["score", "score"]),
-                  getNested(recovery, ["recovery_score"])
-                ) ?? 65,
-              weeklyActivityScore: 78,
-              observedDays: 7,
-              latestSnapshot: snapshot,
-              latestSyncedAt: FieldValue.serverTimestamp()
-            },
-            { merge: true }
-          ),
-          db.doc(`users/${userId}`).set(
-            {
-              profile: {
-                whoopConnected: true,
-                whoopUserId
-              }
-            },
-            { merge: true }
-          )
-        ]);
-
-        const readiness = await buildReadinessForUser(
+        await persistWhoopConnection(
           userId,
           rootData,
           {
-            ...profileRecord,
-            whoopConnected: true,
-            whoopUserId
-          }
+            accessToken: refreshed.access_token,
+            refreshToken: refreshed.refresh_token,
+            expiresIn: refreshed.expires_in,
+            scope: refreshed.scope
+          },
+          snapshot
         );
-        await db.doc(`users/${userId}/readinessScores/${readiness.dateString}`).set(toStoredReadiness(readiness), {
-          merge: true
-        });
       })
     );
   }

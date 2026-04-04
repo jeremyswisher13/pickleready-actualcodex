@@ -36,7 +36,30 @@ export const SettingsTab = ({
   onResetDemoData: () => void;
   onExitDemo: () => void;
   onSignOut: () => void;
-}) => (
+}) => {
+  const whoopStatusText = whoopConnected
+    ? "Connected and feeding wearable recovery into your readiness."
+    : whoopConnectionAvailable
+      ? mode === "live"
+        ? "Connect Whoop to pull recovery, sleep, and strain into your daily readiness. Morning Check-In still works if you skip."
+        : "Available in demo mode so you can preview the wearable path."
+      : "Morning Check-In is the active path in this environment until the server-side wearable sync is switched on.";
+  const whoopPillText = whoopConnected
+    ? mode === "live"
+      ? "Disconnect"
+      : "Connected"
+    : whoopConnectionAvailable
+      ? mode === "live"
+        ? "Connect"
+        : "Preview"
+      : "Morning Check-In";
+  const whoopPillStyles = whoopConnected
+    ? "bg-emerald-50 text-emerald-600"
+    : whoopConnectionAvailable
+      ? "bg-blue-100 text-blue-700"
+      : "bg-amber-50 text-amber-700";
+
+  return (
   <div className="space-y-5">
     <div>
       <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-blue-500">Settings</p>
@@ -87,25 +110,19 @@ export const SettingsTab = ({
             </div>
             <div>
               <p className="text-sm font-semibold text-ink">Whoop</p>
-              <p className="text-sm text-muted">
-                {whoopConnected
-                  ? "Connected and feeding wearable recovery into your readiness."
-                  : whoopConnectionAvailable
-                    ? "Available in demo mode so you can preview the wearable path."
-                    : "Morning Check-In is the active path today while wearable sync is being finalized."}
-              </p>
+              <p className="text-sm text-muted">{whoopStatusText}</p>
             </div>
           </div>
           {whoopConnectionAvailable ? (
             <button
-              className={`rounded-full px-3 py-1 text-xs font-semibold ${whoopConnected ? "bg-emerald-50 text-emerald-600" : "bg-blue-100 text-blue-700"}`}
+              className={`rounded-full px-3 py-1 text-xs font-semibold ${whoopPillStyles}`}
               onClick={onToggleWhoop}
               type="button"
             >
-              {whoopConnected ? "Connected" : "Preview"}
+              {whoopPillText}
             </button>
           ) : (
-            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${whoopConnected ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-700"}`}>
+            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${whoopPillStyles}`}>
               {whoopConnected ? "Connected" : "Morning Check-In"}
             </span>
           )}
@@ -242,4 +259,5 @@ export const SettingsTab = ({
       </div>
     )}
   </div>
-);
+  );
+};

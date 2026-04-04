@@ -19,6 +19,7 @@ import {
   setDoc,
   writeBatch
 } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
 
 import { createSeedData } from "@shared/data/mock";
 import { generatePostMatchInsight } from "@shared/domain/insight";
@@ -38,7 +39,7 @@ import type {
 } from "@shared/domain/types";
 import { detectTimeZone, localDateKey } from "@shared/domain/utils";
 
-import { auth, db, firebaseConfigured, googleProvider } from "@/lib/firebase/client";
+import { auth, db, firebaseConfigured, functions as firebaseFunctions, googleProvider } from "@/lib/firebase/client";
 
 export interface DemoState {
   profile: UserProfile;
@@ -59,6 +60,7 @@ const STORAGE_KEY = "pickleready-demo-state-v3";
 const MODE_STORAGE_KEY = "pickleready-app-mode";
 const DEFAULT_PHOTO_URL =
   "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=400&q=80";
+const WHOOP_OAUTH_ENABLED = process.env.NEXT_PUBLIC_WHOOP_OAUTH_ENABLED === "true";
 
 const createInitialState = (): DemoState => {
   const seed = createSeedData();
@@ -596,11 +598,32 @@ export const usePickleReadyState = () => {
   const [error, setError] = useState<string | null>(null);
   const [pendingReadinessSyncAt, setPendingReadinessSyncAt] = useState<number | null>(null);
   const [pendingRatingSyncAt, setPendingRatingSyncAt] = useState<number | null>(null);
+  const liveWhoopConnectionAvailable = WHOOP_OAUTH_ENABLED && Boolean(firebaseFunctions);
 
   useEffect(() => {
     const stored = parseStoredState(window.localStorage.getItem(STORAGE_KEY));
     setDemoState(normalizeState(stored ?? createInitialState()));
     setGuestMode(readModePreference());
+  }, []);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const whoopStatus = url.searchParams.get("whoop");
+    const whoopMessage = url.searchParams.get("whoopMessage");
+
+    if (!whoopStatus) {
+      return;
+    }
+
+    if (whoopStatus === "error") {
+      setError(whoopMessage || "Whoop connection failed. Please try again.");
+    } else {
+      setError(null);
+    }
+
+    url.searchParams.delete("whoop");
+    url.searchParams.delete("whoopMessage");
+    window.history.replaceState({}, "", url.toString());
   }, []);
 
   useEffect(() => {
@@ -734,6 +757,54 @@ export const usePickleReadyState = () => {
 
     try {
       await syncDerivedDocuments(firebaseUser.uid, nextState);
+    } catch (nextError) {
+      setError(friendlyError(nextError));
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const startWhoopConnectionFlow = async () => {
+    if (!firebaseUser || !firebaseFunctions) {
+      setError("Whoop connection is not configured for this environment yet.");
+      return;
+    }
+
+    setSyncing(true);
+    setError(null);
+
+    try {
+      const createConnectUrl = httpsCallable<{ continueUrl: string }, { url: string }>(
+        firebaseFunctions,
+        "createWhoopConnectUrl"
+      );
+      const result = await createConnectUrl({
+        continueUrl: window.location.href
+      });
+
+      if (!result.data?.url) {
+        throw new Error("Whoop did not return a connection URL.");
+      }
+
+      window.location.assign(result.data.url);
+    } catch (nextError) {
+      setError(friendlyError(nextError));
+      setSyncing(false);
+    }
+  };
+
+  const disconnectWhoopAccount = async () => {
+    if (!firebaseFunctions) {
+      setError("Whoop connection is not configured for this environment yet.");
+      return;
+    }
+
+    setSyncing(true);
+    setError(null);
+
+    try {
+      const disconnectWhoop = httpsCallable(firebaseFunctions, "disconnectWhoop");
+      await disconnectWhoop();
     } catch (nextError) {
       setError(friendlyError(nextError));
     } finally {
@@ -929,6 +1000,10 @@ export const usePickleReadyState = () => {
 
     startTransition(() => setLiveRoot(serializeRootDocument(nextState)));
     await syncLiveState(nextState);
+
+    if (payload.whoopConnected && !state.profile.whoopConnected && liveWhoopConnectionAvailable) {
+      await startWhoopConnectionFlow();
+    }
   };
 
   const reopenOnboarding = async () => {
@@ -971,7 +1046,17 @@ export const usePickleReadyState = () => {
       return;
     }
 
-    setError("Morning Check-In is live today. Whoop sync will appear here once the wearable connection flow is enabled.");
+    if (!liveWhoopConnectionAvailable) {
+      setError("Whoop connection is coded and ready, but this environment still needs the server deploy before it can be turned on.");
+      return;
+    }
+
+    if (state.profile.whoopConnected) {
+      await disconnectWhoopAccount();
+      return;
+    }
+
+    await startWhoopConnectionFlow();
   };
 
   const toggleNotifications = async () => {
@@ -1109,6 +1194,7 @@ export const usePickleReadyState = () => {
     syncing,
     error,
     firebaseReady: firebaseConfigured,
+    whoopConnectionAvailable: mode === "demo" || (mode === "live" && liveWhoopConnectionAvailable),
     saveMatch,
     saveMorningCheckIn,
     deleteMatch: deleteExistingMatch,

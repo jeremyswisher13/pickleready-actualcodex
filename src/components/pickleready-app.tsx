@@ -38,6 +38,7 @@ export const PickleReadyApp = () => {
     syncing,
     error,
     firebaseReady,
+    whoopConnectionAvailable,
     saveMatch,
     saveMorningCheckIn,
     deleteMatch,
@@ -260,7 +261,7 @@ export const PickleReadyApp = () => {
               profile={state.profile}
               syncing={syncing}
               whoopConnected={state.profile.whoopConnected}
-              whoopConnectionAvailable={mode === "demo"}
+              whoopConnectionAvailable={whoopConnectionAvailable}
             />
           ) : null}
         </main>
@@ -300,7 +301,7 @@ export const PickleReadyApp = () => {
           setOnboardingVisible(false);
         }}
         open={onboardingVisible}
-        whoopConnectionAvailable={mode === "demo"}
+        whoopConnectionAvailable={whoopConnectionAvailable}
       />
 
       <MorningCheckInSheet
