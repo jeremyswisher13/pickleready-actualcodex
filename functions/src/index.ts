@@ -20,6 +20,7 @@ import {
   fetchDuprReadOnlyToken,
   fetchDuprStats,
   fetchWhoopSnapshot,
+  hasDuprCredentials,
   refreshWhoopAccessToken,
   revokeWhoopAccess
 } from "./lib/external";
@@ -1051,6 +1052,11 @@ export const syncDuprData = onSchedule(
     timeZone: "Etc/UTC"
   },
   async () => {
+    if (!hasDuprCredentials()) {
+      logger.warn("syncDuprData skipped because DUPR credentials are not configured.");
+      return;
+    }
+
     const token = await fetchDuprReadOnlyToken();
     const userSnapshots = await db.collection("users").get();
 

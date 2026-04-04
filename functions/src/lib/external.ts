@@ -166,6 +166,10 @@ export async function fetchDuprReadOnlyToken() {
   });
 }
 
+export function hasDuprCredentials() {
+  return Boolean(process.env.DUPR_EMAIL && process.env.DUPR_PASSWORD);
+}
+
 export async function fetchDuprPlayer(token: string, playerId: string) {
   return withBackoff("fetchDuprPlayer", async () => {
     const response = await fetch(`${DUPR_BASE}/player/v1.0/${playerId}`, {
