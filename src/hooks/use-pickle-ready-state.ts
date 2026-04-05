@@ -554,7 +554,8 @@ const buildLiveState = (
   const latestStoredRating = ratingHistory.at(-1);
   const shouldUseFallbackReadiness =
     readinessHistory.length === 0 ||
-    (pendingReadinessSyncAt != null &&
+    (!profile.whoopConnected &&
+      pendingReadinessSyncAt != null &&
       (!latestStoredReadiness || new Date(latestStoredReadiness.calculatedAt).getTime() < pendingReadinessSyncAt));
   const shouldUseFallbackRatings =
     ratingHistory.length === 0 ||
@@ -618,6 +619,18 @@ const friendlyError = (error: unknown) => {
   }
 
   return "Something went wrong. Please try again.";
+};
+
+const trySyncDerivedDocuments = async (
+  userId: string,
+  state: DemoState,
+  setErrorMessage: (message: string) => void
+) => {
+  try {
+    await syncDerivedDocuments(userId, state);
+  } catch {
+    setErrorMessage("Saved successfully, but some secondary profile details are still syncing.");
+  }
 };
 
 const shouldUseRedirectForGoogle = () => {
@@ -926,7 +939,7 @@ export const usePickleReadyState = () => {
 
     try {
       await setDoc(doc(db, `users/${firebaseUser.uid}/matches/${match.id}`), match, { merge: true });
-      await syncDerivedDocuments(firebaseUser.uid, nextState);
+      await trySyncDerivedDocuments(firebaseUser.uid, nextState, setError);
       startTransition(() => {
         setLiveMatches(sortMatchesDesc(nextMatches));
         setLiveRoot(serializeRootDocument(nextState));
@@ -966,7 +979,7 @@ export const usePickleReadyState = () => {
 
     try {
       await deleteDoc(doc(db, `users/${firebaseUser.uid}/matches/${matchId}`));
-      await syncDerivedDocuments(firebaseUser.uid, nextState);
+      await trySyncDerivedDocuments(firebaseUser.uid, nextState, setError);
       startTransition(() => {
         setLiveMatches(sortMatchesDesc(nextMatches));
         setLiveRoot(serializeRootDocument(nextState));
@@ -1013,7 +1026,7 @@ export const usePickleReadyState = () => {
 
     try {
       await setDoc(doc(db, `users/${firebaseUser.uid}/dailyCheckins/${checkIn.dateString}`), checkIn, { merge: true });
-      await syncDerivedDocuments(firebaseUser.uid, nextState);
+      await trySyncDerivedDocuments(firebaseUser.uid, nextState, setError);
       startTransition(() => {
         setLiveCheckIns(sortCheckInsDesc(nextCheckIns));
         setLiveRoot(serializeRootDocument(nextState));
