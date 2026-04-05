@@ -23,6 +23,14 @@ import { Card } from "@/components/ui";
 import { usePickleReadyState } from "@/hooks/use-pickle-ready-state";
 import { initializeFirebaseAnalytics } from "@/lib/firebase/client";
 
+const formatPercentage = (value: number | undefined | null) => (typeof value === "number" ? `${Math.round(value)}%` : "—");
+const formatHours = (value: number | undefined | null) => (typeof value === "number" ? `${(value / 3_600_000).toFixed(1)}h` : "—");
+const formatNumber = (value: number | undefined | null, digits = 0) =>
+  typeof value === "number" ? value.toFixed(digits) : "—";
+const formatSigned = (value: number | undefined | null, digits = 1) =>
+  typeof value === "number" ? `${value >= 0 ? "+" : ""}${value.toFixed(digits)}` : "—";
+const formatDayGap = (value: number | null | undefined) => (typeof value === "number" ? `${value}d` : "—");
+
 export const PickleReadyApp = () => {
   const {
     loading,
@@ -118,6 +126,66 @@ export const PickleReadyApp = () => {
     todayRecScore,
     state.profile.timeZone
   );
+  const readinessDetailSections = currentReadiness
+    ? [
+        {
+          eyebrow: "Score mix",
+          title: "How the overall score is built",
+          items: [
+            { label: "Overall", value: formatNumber(currentReadiness.overall) },
+            { label: "Physical", value: `${formatNumber(currentReadiness.physical)} x 45%` },
+            { label: "Skill", value: `${formatNumber(currentReadiness.performance)} x 35%` },
+            { label: "Activity", value: `${formatNumber(currentReadiness.activity)} x 20%` }
+          ]
+        },
+        currentReadiness.physicalSource === "whoop"
+          ? {
+              eyebrow: "Whoop inputs",
+              title: "Today's wearable data",
+              items: [
+                { label: "Recovery", value: formatPercentage(currentReadiness.whoopData.recoveryScore) },
+                { label: "Sleep perf", value: formatPercentage(currentReadiness.whoopData.sleepPerformance) },
+                { label: "Sleep", value: formatHours(currentReadiness.whoopData.sleepDurationMs) },
+                { label: "HRV", value: formatNumber(currentReadiness.whoopData.hrvRmssd) },
+                { label: "Resting HR", value: currentReadiness.whoopData.restingHeartRate != null ? `${Math.round(currentReadiness.whoopData.restingHeartRate)} bpm` : "—" },
+                { label: "Strain", value: formatNumber(currentReadiness.whoopData.strain, 1) }
+              ]
+            }
+          : currentReadiness.checkInData
+            ? {
+                eyebrow: "Morning Check-In",
+                title: "Today's manual inputs",
+                items: [
+                  { label: "Sleep", value: currentReadiness.checkInData.sleepHours != null ? `${currentReadiness.checkInData.sleepHours.toFixed(1)}h` : "—" },
+                  { label: "Quality", value: currentReadiness.checkInData.sleepQuality != null ? `${currentReadiness.checkInData.sleepQuality}/5` : "—" },
+                  { label: "Energy", value: currentReadiness.checkInData.energy != null ? `${currentReadiness.checkInData.energy}/5` : "—" },
+                  { label: "Soreness", value: currentReadiness.checkInData.soreness != null ? `${currentReadiness.checkInData.soreness}/5` : "—" },
+                  { label: "Stress", value: currentReadiness.checkInData.stress != null ? `${currentReadiness.checkInData.stress}/5` : "—" },
+                  { label: "Sharpness", value: currentReadiness.checkInData.mentalSharpness != null ? `${currentReadiness.checkInData.mentalSharpness}/5` : "—" }
+                ]
+              }
+            : {
+                eyebrow: "Physical input",
+                title: "Fallback mode",
+                items: [
+                  { label: "Source", value: "No live body signal", caption: "Connect Whoop or complete a Morning Check-In to replace the default physical estimate." },
+                  { label: "Physical", value: formatNumber(currentReadiness.physical) }
+                ]
+              },
+        {
+          eyebrow: "Context",
+          title: "Match and rating signals",
+          items: [
+            { label: "14-day matches", value: formatNumber(currentReadiness.matchData.recentMatchCount) },
+            { label: "Win rate", value: formatPercentage(currentReadiness.matchData.recentWinRate * 100) },
+            { label: "Days since", value: formatDayGap(currentReadiness.matchData.daysSinceLastMatch) },
+            { label: "Avg margin", value: formatSigned(currentReadiness.matchData.avgMargin, 1) },
+            { label: "DUPR", value: currentReadiness.duprData.doublesRating != null ? currentReadiness.duprData.doublesRating.toFixed(2) : currentReadiness.duprData.singlesRating != null ? currentReadiness.duprData.singlesRating.toFixed(2) : "—" },
+            { label: "14-day trend", value: formatSigned(currentReadiness.duprData.ratingTrend, 2) }
+          ]
+        }
+      ]
+    : [];
 
   const handleShare = async () => {
     const shareText = `My PickleReady today: readiness ${currentReadiness?.overall ?? 65} (${currentReadiness?.label ?? "Good for rec"}) and rec score ${todayRecScore.toFixed(2)}.`;
@@ -336,6 +404,7 @@ export const PickleReadyApp = () => {
       />
 
       <ScoreExplanationsSheet
+        detailSections={readinessDetailSections}
         explanations={currentReadiness?.changeExplanations ?? []}
         onClose={() => setReadinessSheetOpen(false)}
         open={readinessSheetOpen}

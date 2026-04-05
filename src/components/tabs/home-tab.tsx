@@ -55,6 +55,7 @@ export const HomeTab = ({
   const recExplanation = ratingHistory.at(-1)?.recScoreChangeExplanations ?? [];
   const isToday = readiness.dateString === localDateKey();
   const isStale = !isToday && Date.now() - new Date(readiness.calculatedAt).getTime() > 18 * 60 * 60 * 1000;
+  const sleepHours = readiness.whoopData.sleepDurationMs ? readiness.whoopData.sleepDurationMs / 3_600_000 : null;
   const confidenceTone =
     readiness.confidence === "high"
       ? "bg-emerald-50 text-emerald-700"
@@ -82,9 +83,14 @@ export const HomeTab = ({
           </div>
         </div>
 
-        <div className="mt-6">
+        <button
+          className="mt-6 block w-full rounded-[30px] transition focus:outline-none focus:ring-2 focus:ring-blue-300 focus:ring-offset-2"
+          onClick={onOpenReadinessDetails}
+          type="button"
+        >
           <ScoreRing label={readiness.label} score={readiness.overall} />
-        </div>
+          <p className="mt-4 text-center text-xs font-semibold uppercase tracking-[0.18em] text-blue-500">Tap the ring for the full breakdown</p>
+        </button>
 
         <div className="mt-5 grid grid-cols-2 gap-3">
           <button
@@ -111,6 +117,33 @@ export const HomeTab = ({
           </div>
         ) : null}
       </Card>
+
+      {readiness.physicalSource === "whoop" ? (
+        <Card className="px-5 py-5">
+          <SectionTitle
+            eyebrow="Whoop snapshot"
+            title="Today's wearable inputs"
+            action={
+              <button className="text-sm font-semibold text-blue-600" onClick={onOpenReadinessDetails} type="button">
+                Full breakdown
+              </button>
+            }
+          />
+          <div className="mt-4 grid grid-cols-2 gap-3">
+            {[
+              { label: "Recovery", value: readiness.whoopData.recoveryScore != null ? `${Math.round(readiness.whoopData.recoveryScore)}%` : "—" },
+              { label: "Sleep", value: sleepHours != null ? `${sleepHours.toFixed(1)}h` : "—" },
+              { label: "HRV", value: readiness.whoopData.hrvRmssd != null ? `${Math.round(readiness.whoopData.hrvRmssd)}` : "—" },
+              { label: "Strain", value: readiness.whoopData.strain != null ? readiness.whoopData.strain.toFixed(1) : "—" }
+            ].map((item) => (
+              <div key={item.label} className="rounded-[24px] bg-blue-50/60 px-4 py-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-500">{item.label}</p>
+                <p className="mt-2 text-2xl font-bold tracking-[-0.05em] text-ink">{item.value}</p>
+              </div>
+            ))}
+          </div>
+        </Card>
+      ) : null}
 
       {readiness.physicalSource !== "whoop" ? (
         <Card className="px-5 py-5">

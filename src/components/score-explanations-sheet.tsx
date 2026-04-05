@@ -13,6 +13,7 @@ export const ScoreExplanationsSheet = ({
   score,
   subtitle,
   explanations,
+  detailSections = [],
   onClose
 }: {
   open: boolean;
@@ -20,6 +21,15 @@ export const ScoreExplanationsSheet = ({
   score: string;
   subtitle: string;
   explanations: ChangeExplanation[];
+  detailSections?: Array<{
+    eyebrow?: string;
+    title: string;
+    items: Array<{
+      label: string;
+      value: string;
+      caption?: string;
+    }>;
+  }>;
   onClose: () => void;
 }) => {
   if (!open) {
@@ -45,6 +55,24 @@ export const ScoreExplanationsSheet = ({
             <p className="mt-2 text-4xl font-bold tracking-[-0.05em] text-ink">{score}</p>
             <p className="mt-2 text-sm leading-6 text-muted">{subtitle}</p>
           </div>
+
+          {detailSections.map((section) => (
+            <div key={`${section.eyebrow ?? section.title}-${section.title}`} className="rounded-[24px] border border-blue-100 bg-white px-4 py-4">
+              {section.eyebrow ? (
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-500">{section.eyebrow}</p>
+              ) : null}
+              <h4 className="mt-1 text-sm font-semibold text-ink">{section.title}</h4>
+              <div className="mt-4 grid grid-cols-2 gap-3">
+                {section.items.map((item) => (
+                  <div key={`${item.label}-${item.value}`} className="rounded-[18px] bg-blue-50/60 px-3 py-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-blue-500">{item.label}</p>
+                    <p className="mt-2 text-lg font-bold tracking-[-0.04em] text-ink">{item.value}</p>
+                    {item.caption ? <p className="mt-1 text-xs leading-5 text-muted">{item.caption}</p> : null}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
 
           <div className="space-y-3">
             {explanations.length > 0 ? (
