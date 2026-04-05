@@ -29,6 +29,7 @@ export const OnboardingFlow = ({
   initialEmail,
   initialDuprId,
   initialDuprRating,
+  initialWhoopConnected,
   whoopConnectionAvailable,
   onClose,
   onComplete
@@ -38,6 +39,7 @@ export const OnboardingFlow = ({
   initialEmail: string;
   initialDuprId: string;
   initialDuprRating?: number;
+  initialWhoopConnected: boolean;
   whoopConnectionAvailable: boolean;
   onClose: () => void;
   onComplete: (payload: {
@@ -55,7 +57,7 @@ export const OnboardingFlow = ({
   const [email, setEmail] = useState(initialEmail);
   const [duprId, setDuprId] = useState(initialDuprId);
   const [manualDuprRating, setManualDuprRating] = useState(initialDuprRating?.toString() ?? "");
-  const [whoopConnected, setWhoopConnected] = useState(whoopConnectionAvailable);
+  const [whoopConnected, setWhoopConnected] = useState(initialWhoopConnected);
 
   useEffect(() => {
     if (!open) {
@@ -67,10 +69,10 @@ export const OnboardingFlow = ({
     setEmail(initialEmail);
     setDuprId(initialDuprId);
     setManualDuprRating(initialDuprRating?.toString() ?? "");
-    setWhoopConnected(whoopConnectionAvailable);
+    setWhoopConnected(initialWhoopConnected);
     setFormError(null);
     setSaving(false);
-  }, [initialDuprId, initialDuprRating, initialEmail, initialName, open, whoopConnectionAvailable]);
+  }, [initialDuprId, initialDuprRating, initialEmail, initialName, initialWhoopConnected, open]);
 
   if (!open) {
     return null;
@@ -218,7 +220,7 @@ export const OnboardingFlow = ({
                 </h4>
                 <p className="mt-2 text-sm leading-6 text-muted">
                   {whoopConnectionAvailable
-                    ? "Wearable recovery is powerful, but you can still get a meaningful daily fatigue signal from the Morning Check-In if you skip it."
+                    ? "Wearable recovery is powerful, but you can still get a meaningful daily fatigue signal from the Morning Check-In if you skip it. You can also connect Whoop later from Settings."
                     : "Morning Check-In works today as the recommended no-device path. You can still build a strong readiness habit without a wearable."}
                 </p>
               </div>

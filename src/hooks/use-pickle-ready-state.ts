@@ -236,7 +236,7 @@ const normalizeState = (state: DemoState): DemoState => {
   const replay = replayRecRatings(chronologicalMatches, startingRating, {
     singles: state.dupr.singlesRating,
     doubles: state.dupr.doublesRating
-  });
+  }, state.profile.timeZone);
 
   let runningPreviousRec = startingRating;
   const recalculatedMatches = chronologicalMatches.map((match, index) => {
@@ -1087,10 +1087,6 @@ export const usePickleReadyState = () => {
     const synced = await syncLiveState(nextState);
     if (!synced) {
       return false;
-    }
-
-    if (payload.whoopConnected && !state.profile.whoopConnected && liveWhoopConnectionAvailable) {
-      return await startWhoopConnectionFlow();
     }
 
     return true;

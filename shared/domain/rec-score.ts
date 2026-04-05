@@ -1,5 +1,5 @@
 import type { ChangeExplanation, MatchGame, MatchRecord, RecScoreInput, RecScoreResult, RatingEntry } from "./types";
-import { average, clamp, isoDateKey, round } from "./utils";
+import { average, clamp, dateKeyInTimeZone, isoDateKey, round } from "./utils";
 
 export const MIN_RATING = 2;
 export const MAX_RATING = 8;
@@ -165,7 +165,8 @@ const getOpponentAverageRating = (match: MatchRecord) => {
 export const replayRecRatings = (
   matches: MatchRecord[],
   startingRating: number,
-  duprRatings?: { singles?: number; doubles?: number }
+  duprRatings?: { singles?: number; doubles?: number },
+  userTimeZone?: string
 ) => {
   const sortedMatches = [...matches].sort((left, right) => {
     const leftTime = new Date(left.date).getTime();
@@ -199,7 +200,7 @@ export const replayRecRatings = (
     updates.set(match.id, result);
 
     entries.push({
-      dateString: isoDateKey(match.date),
+      dateString: userTimeZone ? dateKeyInTimeZone(match.date, userTimeZone) : isoDateKey(match.date),
       duprSingles: duprRatings?.singles,
       duprDoubles: duprRatings?.doubles,
       recScore: currentRating,

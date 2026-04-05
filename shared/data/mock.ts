@@ -293,7 +293,7 @@ export const createSeedData = () => {
   const replay = replayRecRatings(matches, seedDuprSnapshot.doublesRating ?? seedDuprSnapshot.singlesRating ?? 3.5, {
     singles: seedDuprSnapshot.singlesRating,
     doubles: seedDuprSnapshot.doublesRating
-  });
+  }, seedProfile.timeZone);
   let previousRecScore = seedDuprSnapshot.doublesRating ?? seedDuprSnapshot.singlesRating ?? 3.5;
 
   const enrichedMatches = matches.map((match) => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { calculateRecScoreUpdate, calculateExpectedOutcome, resolveBaseKFactor } from "@shared/domain/rec-score";
+import { calculateRecScoreUpdate, calculateExpectedOutcome, replayRecRatings, resolveBaseKFactor } from "@shared/domain/rec-score";
 
 describe("rec score engine", () => {
   it("applies stacked multipliers for verified tournament wins", () => {
@@ -45,5 +45,39 @@ describe("rec score engine", () => {
     expect(calculateExpectedOutcome(4.4, 4.4)).toBe(0.5);
     expect(calculateExpectedOutcome(4.2, 4.6)).toBeLessThan(0.5);
     expect(calculateExpectedOutcome(4.7, 4.3)).toBeGreaterThan(0.5);
+  });
+
+  it("stores replayed rating entries on the player's local match day", () => {
+    const replay = replayRecRatings(
+      [
+        {
+          id: "night-match",
+          date: "2026-04-05T00:43:00.000Z",
+          createdAt: "2026-04-05T00:43:00.000Z",
+          matchType: "singles",
+          category: "rec",
+          format: "standard",
+          environment: "outdoor",
+          genderFormat: "open",
+          opponents: [{ name: "Late Match", rating: 4 }],
+          games: [
+            { myScore: 11, opponentScore: 8 },
+            { myScore: 11, opponentScore: 9 }
+          ],
+          result: "win",
+          notes: "",
+          verified: false,
+          verifiedBy: [],
+          readinessAtTime: 70,
+          postMatchInsight: "",
+          opponentAverageRating: 4
+        }
+      ],
+      3.5,
+      undefined,
+      "America/Los_Angeles"
+    );
+
+    expect(replay.entries[0]?.dateString).toBe("2026-04-04");
   });
 });

@@ -542,13 +542,14 @@ const syncMatchDerivedStateForUser = async (userId: string, rootData: Record<str
     rootData.profile && typeof rootData.profile === "object"
       ? (rootData.profile as Record<string, unknown>)
       : rootData;
+  const profileTimeZone = getProfileTimeZone(profile);
   const matches = await loadMatches(userId);
   const duprSnapshot = toDuprSnapshot(rootData);
   const startingRating = await getRecScoreAnchor(userId, rootData);
   const replay = replayRecRatings(matches, startingRating, {
     singles: duprSnapshot.singlesRating,
     doubles: duprSnapshot.doublesRating
-  });
+  }, profileTimeZone);
   const readinessSnapshot = await db.collection(`users/${userId}/readinessScores`).get();
   const readinessByDate = new Map(
     readinessSnapshot.docs.map((doc) => [doc.id, toReadinessRecord(doc.id, doc.data() as Record<string, unknown>)])
@@ -561,7 +562,9 @@ const syncMatchDerivedStateForUser = async (userId: string, rootData: Record<str
     const previousMatchesAgainstOpponent = matches.slice(0, index).filter((candidate) =>
       candidate.opponents.some((opponent) => match.opponents.some((target) => target.name === opponent.name))
     );
-    const readiness = readinessByDate.get(isoDateKey(match.date)) ?? buildReadinessStub(match.readinessAtTime, match.date);
+    const readiness =
+      readinessByDate.get(dateKeyInTimeZone(match.date, profileTimeZone)) ??
+      buildReadinessStub(match.readinessAtTime, match.date);
     const postMatchInsight = buildPostMatchInsight({
       match: {
         ...match,

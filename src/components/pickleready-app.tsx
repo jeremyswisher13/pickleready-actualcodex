@@ -313,6 +313,7 @@ export const PickleReadyApp = () => {
         initialDuprRating={state.dupr.doublesRating ?? state.dupr.singlesRating}
         initialEmail={state.profile.email}
         initialName={state.profile.displayName}
+        initialWhoopConnected={state.profile.whoopConnected}
         onClose={() => setOnboardingVisible(false)}
         onComplete={completeOnboarding}
         open={onboardingVisible}
